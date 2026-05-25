@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "JustSnap",
+  "version": "0.1.0",
+  "description": "Capture webpage snippets, organize them in a side rail, and learn local screenshot workflows.",
+  "permissions": ["activeTab", "storage", "scripting", "clipboardWrite", "unlimitedStorage"],
+  "action": {
+    "default_title": "Open JustSnap"
+  },
+  "commands": {
+    "toggle-justsnap": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+J",
+        "mac": "Command+Shift+J"
+      },
+      "description": "Open JustSnap"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*", "file://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html"
+}
