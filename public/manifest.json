@@ -4,16 +4,31 @@
   "version": "0.1.0",
   "description": "Capture webpage snippets, organize them in a side rail, and learn local screenshot workflows.",
   "permissions": ["activeTab", "storage", "scripting", "clipboardWrite", "unlimitedStorage"],
+  "host_permissions": ["http://*/*", "https://*/*", "file://*/*"],
   "action": {
     "default_title": "Open JustSnap"
   },
   "commands": {
     "toggle-justsnap": {
       "suggested_key": {
-        "default": "Ctrl+Shift+J",
-        "mac": "Command+Shift+J"
+        "default": "Ctrl+Shift+E",
+        "mac": "Command+Shift+E"
       },
       "description": "Open JustSnap"
+    },
+    "start-capture": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Start a JustSnap capture"
+    },
+    "close-justsnap": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+X",
+        "mac": "Command+Shift+X"
+      },
+      "description": "Close JustSnap"
     }
   },
   "background": {

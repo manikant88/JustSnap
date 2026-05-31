@@ -79,6 +79,8 @@ export type CaptureImage = {
 
 export type BackgroundRequest =
   | { type: "JUSTSNAP_TOGGLE_RAIL" }
+  | { type: "JUSTSNAP_CLOSE_RAIL_GLOBAL" }
+  | { type: "JUSTSNAP_OPEN_SHORTCUT_SETTINGS" }
   | { type: "JUSTSNAP_CAPTURE_VISIBLE" }
   | { type: "JUSTSNAP_GET_LIBRARY" }
   | { type: "JUSTSNAP_SAVE_LIBRARY"; library: Pick<LibraryState, "captures" | "groups" | "events"> }
@@ -92,4 +94,6 @@ export type BackgroundResponse<T = unknown> =
 
 export type ContentMessage =
   | { type: "JUSTSNAP_SHOW_RAIL" }
+  | { type: "JUSTSNAP_START_CAPTURE" }
+  | { type: "JUSTSNAP_CLOSE_RAIL" }
   | { type: "JUSTSNAP_CAPTURE_ERROR"; error: string };
