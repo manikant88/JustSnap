@@ -11,24 +11,14 @@ export async function copyFilesToClipboard(files: File[]): Promise<void> {
   }
 }
 
-export function captureFileForDrag(capture: Capture, blob: Blob | undefined, index: number): File | undefined {
+export function captureFileForDrag(capture: Capture, blob: Blob | undefined): File | undefined {
   const imageBlob = blob ?? (capture.fullDataUrl ? dataUrlToBlob(capture.fullDataUrl) : undefined);
   if (!imageBlob) return undefined;
-  return new File([imageBlob], fileNameForCapture(capture, index), { type: "image/png" });
+  return new File([imageBlob], "", { type: "image/png" });
 }
 
 export function dragPreviewElement(target: EventTarget): Element | undefined {
   if (!(target instanceof Element)) return undefined;
   return target.querySelector("img") ?? target;
-}
-
-function fileNameForCapture(capture: Capture, index: number): string {
-  const base = (capture.pageTitle || capture.sourceOrigin || "justsnap")
-    .toLowerCase()
-    .replace(/https?:\/\//g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48);
-  return `${base || "justsnap"}-${index + 1}.png`;
 }
 

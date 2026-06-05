@@ -123,6 +123,27 @@ export const styles = `
     transition: width 120ms ease-out, height 120ms ease-out;
     overflow: visible;
   }
+  .justsnap-dock-slot::before,
+  .justsnap-dock-slot::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    z-index: 8;
+    width: max(34px, var(--justsnap-rail-surface, 74px));
+    height: 3px;
+    border-radius: 999px;
+    background: #0ea5e9;
+    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.16), 0 8px 16px rgba(14, 165, 233, 0.24);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 100ms ease-out;
+  }
+  .justsnap-dock-slot::before { top: -2px; }
+  .justsnap-dock-slot::after { bottom: -2px; }
+  .justsnap-drop-before::before,
+  .justsnap-drop-after::after {
+    opacity: 1;
+  }
   .justsnap-dock-image-button {
     position: absolute;
     top: 50%;
@@ -162,6 +183,33 @@ export const styles = `
     border-color: #0ea5e9;
     box-shadow: 0 10px 24px rgba(15, 32, 48, 0.24);
     z-index: 2;
+  }
+  .justsnap-drop-create-folder .justsnap-dock-image-button,
+  .justsnap-drop-add-folder .justsnap-dock-folder-button,
+  .justsnap-drop-add-folder .justsnap-dock-image-button {
+    border-color: #22c55e !important;
+    box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.18), 0 12px 28px rgba(15, 32, 48, 0.24) !important;
+  }
+  .justsnap-drop-create-folder .justsnap-dock-image-button::after,
+  .justsnap-drop-add-folder .justsnap-dock-folder-button::after,
+  .justsnap-drop-add-folder .justsnap-dock-image-button::after {
+    content: "+";
+    position: absolute;
+    right: 5px;
+    bottom: 5px;
+    z-index: 3;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    background: #22c55e;
+    box-shadow: 0 3px 8px rgba(15, 23, 42, 0.24);
+    font-size: 13px;
+    font-weight: 900;
+    line-height: 1;
   }
   .justsnap-dock-image-button:active { cursor: grabbing; }
   .justsnap-dock-folder-button {

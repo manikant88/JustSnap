@@ -113,7 +113,7 @@ async function padWideImageForWhatsApp(file: File): Promise<File> {
   context.drawImage(bitmap, 0, top, image.width, image.height);
   if ("close" in bitmap && typeof bitmap.close === "function") bitmap.close();
   const blob = await canvasToBlob(canvas);
-  return new File([blob], file.name.replace(/\.png$/i, "-whatsapp.png"), { type: "image/png" });
+  return new File([blob], "", { type: "image/png" });
 }
 
 async function loadBitmap(file: File): Promise<ImageBitmap> {
@@ -281,17 +281,15 @@ function dispatchPasteWithFiles(target: HTMLElement, files: File[]): boolean {
 function dispatchDropWithFiles(target: HTMLElement, files: File[]): boolean {
   try {
     const transfer = filesToTransfer(files);
-    let accepted = false;
-    for (const type of ["dragenter", "dragover", "drop"]) {
-      const event = new DragEvent(type, {
-        bubbles: true,
-        cancelable: true,
-        dataTransfer: transfer
-      });
-      const dispatched = target.dispatchEvent(event);
-      accepted = accepted || !dispatched || event.defaultPrevented;
-    }
-    return accepted;
+    // The user already generated native dragenter/dragover events while moving
+    // the capture. Replaying dragover can trip passive page listeners in apps
+    // such as Google Docs, so the insertion fallback only supplies the drop.
+    const event = new DragEvent("drop", {
+      bubbles: true,
+      cancelable: true,
+      dataTransfer: transfer
+    });
+    return !target.dispatchEvent(event) || event.defaultPrevented;
   } catch {
     return false;
   }
@@ -341,4 +339,3 @@ function sleep(ms: number): Promise<void> {
 function nextAnimationFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
-

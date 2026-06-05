@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Files, Trash2 } from "lucide-react";
-import type { Capture, CaptureGroup } from "../../../shared/types";
+import type { Capture, CaptureGroup, RailOrderItem } from "../../../shared/types";
 import {
   dockCapturePreviewFrame,
   dockCaptureThumbnailSize,
@@ -11,7 +11,7 @@ import {
   useDockPreviewOffset
 } from "../dockLayout";
 import type { DockLayout } from "../dockLayout";
-import type { InternalDrag } from "../types";
+import type { InternalDrag, RailDropIntent } from "../types";
 
 type RailEntry =
   | { kind: "group"; group: CaptureGroup; captures: Capture[] }
@@ -20,19 +20,20 @@ type RailEntry =
 export function LibraryView(props: {
   captures: Capture[];
   groups: CaptureGroup[];
-  ungroupedCaptures: Capture[];
+  railOrder: RailOrderItem[];
   blobCache: Record<string, Blob>;
+  dragging: InternalDrag | null;
   recentlyAddedCaptureId: string | null;
   layout: DockLayout;
   onStartDrag: (event: React.DragEvent, drag: InternalDrag, captureIds: string[], groupId?: string) => void;
   onEndDrag: (event: React.DragEvent) => void;
-  onDropCapture: (captureId: string) => void;
-  onDropGroup: (groupId: string) => void;
+  onDropIntent: (intent: RailDropIntent) => void;
   onRemoveGroup: (groupId: string) => void;
   onRemoveCapture: (captureId: string) => void;
 }) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const [dropIntent, setDropIntent] = useState<RailDropIntent | null>(null);
   const focusedIndex = hoveredIndex;
   const visibleGroups = useMemo(
     () =>
@@ -47,11 +48,18 @@ export function LibraryView(props: {
     [props.captures, props.groups]
   );
   const entries = useMemo<RailEntry[]>(
-    () => [
-      ...visibleGroups.map((entry) => ({ kind: "group" as const, ...entry })),
-      ...props.ungroupedCaptures.map((capture) => ({ kind: "capture" as const, capture }))
-    ],
-    [props.ungroupedCaptures, visibleGroups]
+    () =>
+      props.railOrder
+        .map((item) => {
+          if (item.kind === "group") {
+            const group = visibleGroups.find((entry) => entry.group.id === item.id);
+            return group ? ({ kind: "group" as const, ...group } satisfies RailEntry) : undefined;
+          }
+          const capture = props.captures.find((entry) => entry.id === item.id && !entry.groupId);
+          return capture ? ({ kind: "capture" as const, capture } satisfies RailEntry) : undefined;
+        })
+        .filter((entry): entry is RailEntry => Boolean(entry)),
+    [props.captures, props.railOrder, visibleGroups]
   );
   const layout = props.layout;
 
@@ -87,6 +95,7 @@ export function LibraryView(props: {
       }
       onMouseLeave={() => {
         if (!activeGroupId) setHoveredIndex(null);
+        setDropIntent(null);
       }}
     >
       {entries.map((entry, index) =>
@@ -107,12 +116,14 @@ export function LibraryView(props: {
               props.onStartDrag(event, { kind: "group", groupId: entry.group.id }, entry.captures.map((capture) => capture.id), entry.group.id)
             }
             onDragEnd={props.onEndDrag}
-            onDrop={() => props.onDropGroup(entry.group.id)}
+            dragging={props.dragging}
+            dropIntent={dropIntent}
+            onDropIntent={props.onDropIntent}
+            setDropIntent={setDropIntent}
             onRemove={() => props.onRemoveGroup(entry.group.id)}
             onStartCaptureDrag={(event, capture) =>
               props.onStartDrag(event, { kind: "capture", captureId: capture.id }, [capture.id], capture.groupId)
             }
-            onDropCapture={props.onDropCapture}
             onRemoveCapture={props.onRemoveCapture}
           />
         ) : (
@@ -132,7 +143,10 @@ export function LibraryView(props: {
               props.onStartDrag(event, { kind: "capture", captureId: entry.capture.id }, [entry.capture.id], entry.capture.groupId)
             }
             onDragEnd={props.onEndDrag}
-            onDrop={() => props.onDropCapture(entry.capture.id)}
+            dragging={props.dragging}
+            dropIntent={dropIntent}
+            onDropIntent={props.onDropIntent}
+            setDropIntent={setDropIntent}
             onRemove={() => props.onRemoveCapture(entry.capture.id)}
           />
         )
@@ -154,7 +168,10 @@ function CaptureDockItem(props: {
   onHover?: () => void;
   onDragStart: (event: React.DragEvent) => void;
   onDragEnd: (event: React.DragEvent) => void;
-  onDrop: () => void;
+  dragging: InternalDrag | null;
+  dropIntent: RailDropIntent | null;
+  onDropIntent: (intent: RailDropIntent) => void;
+  setDropIntent: (intent: RailDropIntent | null) => void;
   onRemove: () => void;
 }) {
   const influence = dockInfluence(props.index, props.focusedIndex);
@@ -185,7 +202,8 @@ function CaptureDockItem(props: {
       ref={slotRef}
       className={[
         "justsnap-dock-slot",
-        isFocused ? "justsnap-dock-slot-hovered" : ""
+        isFocused ? "justsnap-dock-slot-hovered" : "",
+        railIntentClass(props.dropIntent, { kind: "capture", id: props.capture.id })
       ].join(" ")}
       style={
         {
@@ -201,10 +219,21 @@ function CaptureDockItem(props: {
         props.setHoveredIndex(props.index);
       }}
       onMouseLeave={() => props.setHoveredIndex(null)}
-      onDragOver={(event) => event.preventDefault()}
+      onDragOver={(event) => {
+        const intent = railIntentForCapture(event, props.capture.id, props.dragging);
+        props.setDropIntent(intent);
+        if (intent) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }}
       onDrop={(event) => {
+        const intent = railIntentForCapture(event, props.capture.id, props.dragging);
+        if (!intent) return;
         event.preventDefault();
-        props.onDrop();
+        event.stopPropagation();
+        props.setDropIntent(null);
+        props.onDropIntent(intent);
       }}
     >
       <button
@@ -261,10 +290,12 @@ function GroupDockItem(props: {
   onActivate: () => void;
   onDragStart: (event: React.DragEvent) => void;
   onDragEnd: (event: React.DragEvent) => void;
-  onDrop: () => void;
+  dragging: InternalDrag | null;
+  dropIntent: RailDropIntent | null;
+  onDropIntent: (intent: RailDropIntent) => void;
+  setDropIntent: (intent: RailDropIntent | null) => void;
   onRemove: () => void;
   onStartCaptureDrag: (event: React.DragEvent, capture: Capture) => void;
-  onDropCapture: (captureId: string) => void;
   onRemoveCapture: (captureId: string) => void;
 }) {
   const influence = props.active ? 1 : dockInfluence(props.index, props.focusedIndex);
@@ -279,7 +310,8 @@ function GroupDockItem(props: {
       className={[
         "justsnap-dock-slot",
         "justsnap-dock-group-slot",
-        isFocused ? "justsnap-dock-slot-hovered" : ""
+        isFocused ? "justsnap-dock-slot-hovered" : "",
+        railIntentClass(props.dropIntent, { kind: "group", id: props.group.id })
       ].join(" ")}
       style={
         {
@@ -293,10 +325,21 @@ function GroupDockItem(props: {
         props.onActivate();
         props.setHoveredIndex(props.index);
       }}
-      onDragOver={(event) => event.preventDefault()}
+      onDragOver={(event) => {
+        const intent = railIntentForGroup(event, props.group.id, props.dragging);
+        props.setDropIntent(intent);
+        if (intent) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }}
       onDrop={(event) => {
+        const intent = railIntentForGroup(event, props.group.id, props.dragging);
+        if (!intent) return;
         event.preventDefault();
-        props.onDrop();
+        event.stopPropagation();
+        props.setDropIntent(null);
+        props.onDropIntent(intent);
       }}
     >
       <button
@@ -358,7 +401,11 @@ function GroupDockItem(props: {
                 setFocusedIndex={setFlyoutFocusedIndex}
                 onDragStart={(event) => props.onStartCaptureDrag(event, capture)}
                 onDragEnd={props.onDragEnd}
-                onDrop={() => props.onDropCapture(capture.id)}
+                dragging={props.dragging}
+                dropIntent={props.dropIntent}
+                groupId={props.group.id}
+                onDropIntent={props.onDropIntent}
+                setDropIntent={props.setDropIntent}
                 onRemove={() => props.onRemoveCapture(capture.id)}
               />
             ))}
@@ -380,7 +427,11 @@ function GroupFlyoutDockItem(props: {
   setFocusedIndex: (index: number | null) => void;
   onDragStart: (event: React.DragEvent) => void;
   onDragEnd: (event: React.DragEvent) => void;
-  onDrop: () => void;
+  dragging: InternalDrag | null;
+  dropIntent: RailDropIntent | null;
+  groupId: string;
+  onDropIntent: (intent: RailDropIntent) => void;
+  setDropIntent: (intent: RailDropIntent | null) => void;
   onRemove: () => void;
 }) {
   const influence = dockInfluence(props.index, props.focusedIndex);
@@ -409,7 +460,12 @@ function GroupFlyoutDockItem(props: {
   return (
     <div
       ref={slotRef}
-      className={["justsnap-dock-slot", "justsnap-group-flyout-slot", isFocused ? "justsnap-dock-slot-hovered" : ""].join(" ")}
+      className={[
+        "justsnap-dock-slot",
+        "justsnap-group-flyout-slot",
+        isFocused ? "justsnap-dock-slot-hovered" : "",
+        folderIntentClass(props.dropIntent, props.groupId, props.capture.id)
+      ].join(" ")}
       style={
         {
           width: slotWidth,
@@ -421,10 +477,21 @@ function GroupFlyoutDockItem(props: {
       }
       onMouseEnter={() => props.setFocusedIndex(props.index)}
       onMouseLeave={() => props.setFocusedIndex(null)}
-      onDragOver={(event) => event.preventDefault()}
+      onDragOver={(event) => {
+        const intent = folderIntentForCapture(event, props.groupId, props.capture.id, props.dragging);
+        props.setDropIntent(intent);
+        if (intent) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }}
       onDrop={(event) => {
+        const intent = folderIntentForCapture(event, props.groupId, props.capture.id, props.dragging);
+        if (!intent) return;
         event.preventDefault();
-        props.onDrop();
+        event.stopPropagation();
+        props.setDropIntent(null);
+        props.onDropIntent(intent);
       }}
     >
       <button
@@ -456,6 +523,92 @@ function GroupFlyoutDockItem(props: {
       )}
     </div>
   );
+}
+
+function railIntentForCapture(event: React.DragEvent, targetCaptureId: string, drag: InternalDrag | null): RailDropIntent | null {
+  if (!drag) return null;
+  const zone = verticalDropZone(event);
+  if (zone === "before" || zone === "after") {
+    if (drag.kind === "capture" && drag.captureId === targetCaptureId) return null;
+    return {
+      scope: "rail",
+      action: zone === "before" ? "insert-before" : "insert-after",
+      target: { kind: "capture", id: targetCaptureId }
+    };
+  }
+  if (drag.kind === "capture" && drag.captureId !== targetCaptureId) {
+    return { scope: "rail", action: "create-folder", target: { kind: "capture", id: targetCaptureId } };
+  }
+  return null;
+}
+
+function railIntentForGroup(event: React.DragEvent, targetGroupId: string, drag: InternalDrag | null): RailDropIntent | null {
+  if (!drag) return null;
+  const zone = verticalDropZone(event);
+  if (zone === "before" || zone === "after") {
+    if (drag.kind === "group" && drag.groupId === targetGroupId) return null;
+    return {
+      scope: "rail",
+      action: zone === "before" ? "insert-before" : "insert-after",
+      target: { kind: "group", id: targetGroupId }
+    };
+  }
+  if (drag.kind === "capture") {
+    return { scope: "rail", action: "add-to-folder", target: { kind: "group", id: targetGroupId } };
+  }
+  return null;
+}
+
+function folderIntentForCapture(
+  event: React.DragEvent,
+  groupId: string,
+  targetCaptureId: string,
+  drag: InternalDrag | null
+): RailDropIntent | null {
+  if (!drag || drag.kind !== "capture" || drag.captureId === targetCaptureId) return null;
+  const zone = verticalDropZone(event);
+  if (zone === "before" || zone === "after") {
+    return {
+      scope: "folder",
+      action: zone === "before" ? "insert-before" : "insert-after",
+      groupId,
+      targetCaptureId
+    };
+  }
+  return { scope: "folder", action: "add-to-folder", groupId, targetCaptureId };
+}
+
+function verticalDropZone(event: React.DragEvent): "before" | "center" | "after" {
+  const rect = event.currentTarget.getBoundingClientRect();
+  const y = event.clientY - rect.top;
+  if (y < rect.height * 0.25) return "before";
+  if (y > rect.height * 0.75) return "after";
+  return "center";
+}
+
+function railIntentClass(intent: RailDropIntent | null, item: RailOrderItem): string {
+  if (!intent || intent.scope !== "rail") return "";
+  if ((intent.action === "insert-before" || intent.action === "insert-after") && railOrderItemMatches(intent.target, item)) {
+    return intent.action === "insert-before" ? "justsnap-drop-before" : "justsnap-drop-after";
+  }
+  if (intent.action === "create-folder" && item.kind === "capture" && intent.target.id === item.id) {
+    return "justsnap-drop-create-folder";
+  }
+  if (intent.action === "add-to-folder" && item.kind === "group" && intent.target.id === item.id) {
+    return "justsnap-drop-add-folder";
+  }
+  return "";
+}
+
+function folderIntentClass(intent: RailDropIntent | null, groupId: string, captureId: string): string {
+  if (!intent || intent.scope !== "folder" || intent.groupId !== groupId || intent.targetCaptureId !== captureId) return "";
+  if (intent.action === "insert-before") return "justsnap-drop-before";
+  if (intent.action === "insert-after") return "justsnap-drop-after";
+  return "justsnap-drop-add-folder";
+}
+
+function railOrderItemMatches(first: RailOrderItem, second: RailOrderItem): boolean {
+  return first.kind === second.kind && first.id === second.id;
 }
 
 function isActiveRailInteraction(path: EventTarget[]): boolean {

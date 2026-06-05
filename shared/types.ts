@@ -20,6 +20,10 @@ export type CaptureGroup = {
   collapsed: boolean;
 };
 
+export type RailOrderItem =
+  | { kind: "capture"; id: string }
+  | { kind: "group"; id: string };
+
 export type ActivityEventType =
   | "rail_opened"
   | "capture_started"
@@ -37,6 +41,8 @@ export type ActivityEventType =
   | "group_downloaded"
   | "capture_drag_started"
   | "group_drag_started"
+  | "rail_reordered"
+  | "folder_reordered"
   | "browser_paste_detected"
   | "browser_drop_detected"
   | "metadata_exported";
@@ -67,6 +73,7 @@ export type PendingUsage = {
 export type LibraryState = {
   captures: Capture[];
   groups: CaptureGroup[];
+  railOrder: RailOrderItem[];
   events: ActivityEvent[];
   pendingUsages: PendingUsage[];
 };
@@ -83,7 +90,7 @@ export type BackgroundRequest =
   | { type: "JUSTSNAP_OPEN_SHORTCUT_SETTINGS" }
   | { type: "JUSTSNAP_CAPTURE_VISIBLE" }
   | { type: "JUSTSNAP_GET_LIBRARY" }
-  | { type: "JUSTSNAP_SAVE_LIBRARY"; library: Pick<LibraryState, "captures" | "groups" | "events"> }
+  | { type: "JUSTSNAP_SAVE_LIBRARY"; library: Pick<LibraryState, "captures" | "groups" | "railOrder" | "events"> }
   | { type: "JUSTSNAP_APPEND_EVENT"; event: ActivityEvent }
   | { type: "JUSTSNAP_SET_PENDING_USAGE"; pending: PendingUsage }
   | { type: "JUSTSNAP_MATCH_PENDING_USAGE"; interaction: "paste" | "drop"; destinationUrl: string; destinationOrigin: string };

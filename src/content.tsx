@@ -13,7 +13,7 @@ import { placeFilesInCurrentPage } from "./content/drag/pageInsert";
 import { dataUrlToBlob, loadImage } from "./content/imageTools";
 import { LibraryView } from "./content/rail/LibraryView";
 import { styles } from "./content/styles";
-import type { DragPayload, InternalDrag, Point, Rect } from "./content/types";
+import type { DragPayload, InternalDrag, Point, RailDropIntent, Rect } from "./content/types";
 import type {
   ActivityEvent,
   BackgroundRequest,
@@ -23,7 +23,8 @@ import type {
   CaptureImage,
   ContentMessage,
   LibraryState,
-  PendingUsage
+  PendingUsage,
+  RailOrderItem
 } from "../shared/types";
 
 const PENDING_USAGE_MS = 2 * 60 * 1000;
@@ -73,6 +74,7 @@ function unmountRail() {
 function JustSnapApp({ command }: { command?: ContentCommand }) {
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [groups, setGroups] = useState<CaptureGroup[]>([]);
+  const [railOrder, setRailOrder] = useState<RailOrderItem[]>([]);
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [captureMode, setCaptureMode] = useState(false);
@@ -95,6 +97,7 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
         if (cancelled) return;
         setCaptures(library.captures);
         setGroups(library.groups);
+        setRailOrder(library.railOrder);
         setEvents(library.events);
         setLoaded(true);
         if (!hasLoggedOpen.current) {
@@ -112,9 +115,9 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
     if (!loaded) return;
     sendBackground({
       type: "JUSTSNAP_SAVE_LIBRARY",
-      library: { captures, groups, events }
+      library: { captures, groups, railOrder, events }
     }).catch(() => undefined);
-  }, [captures, events, groups, loaded]);
+  }, [captures, events, groups, loaded, railOrder]);
 
   useEffect(() => {
     let cancelled = false;
@@ -164,11 +167,6 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
     if (!start || !current) return null;
     return normalizeRect(start, current);
   }, [current, start]);
-
-  const ungroupedCaptures = useMemo(
-    () => captures.filter((capture) => !capture.groupId),
-    [captures]
-  );
 
   const addEvent = useCallback(
     async (
@@ -250,6 +248,7 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
         fullDataUrl: crop.dataUrl
       };
       setCaptures((currentCaptures) => [capture, ...currentCaptures]);
+      setRailOrder((currentOrder) => prependRailItem(currentOrder, { kind: "capture", id }));
       setBlobCache((currentCache) => ({ ...currentCache, [id]: blob }));
       setRecentlyAddedCaptureId(id);
       setCaptureMode(false);
@@ -301,7 +300,7 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
       .map((id) => captures.find((capture) => capture.id === id))
       .filter(Boolean) as Capture[];
     const files = dragCaptures
-      .map((capture, index) => captureFileForDrag(capture, blobCache[capture.id], index))
+      .map((capture) => captureFileForDrag(capture, blobCache[capture.id]))
       .filter(Boolean) as File[];
 
     if (!files.length) {
@@ -319,15 +318,6 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
     transfer.effectAllowed = "copy";
     transfer.dropEffect = "copy";
     transfer.setData("application/x-justsnap", JSON.stringify(drag));
-
-    const firstCapture = dragCaptures[0];
-    const firstFile = files[0];
-    if (firstCapture && firstFile) {
-      transfer.setData(
-        "DownloadURL",
-        `${firstFile.type || "image/png"}:${firstFile.name}:${firstCapture.fullDataUrl || firstCapture.thumbnailDataUrl}`
-      );
-    }
 
     files.forEach((file) => {
       if (!transfer.items) return;
@@ -363,18 +353,49 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
     await recordUsage("drag", payload.captureIds, payload.groupId ? "group_inserted" : "capture_inserted", payload.groupId);
   };
 
-  const dropOnCapture = (targetCaptureId: string) => {
-    if (!dragging || dragging.kind !== "capture" || dragging.captureId === targetCaptureId) return;
-    pendingDragPayload.current = null;
-    createOrUpdateGroup(dragging.captureId, targetCaptureId);
-    setDragging(null);
-  };
-
-  const dropOnGroup = (groupId: string) => {
+  const applyRailDropIntent = async (intent: RailDropIntent) => {
     if (!dragging) return;
     pendingDragPayload.current = null;
-    if (dragging.kind === "capture") addCaptureToGroup(dragging.captureId, groupId);
     setDragging(null);
+
+    if (intent.scope === "rail" && (intent.action === "insert-before" || intent.action === "insert-after")) {
+      const item = dragToRailItem(dragging);
+      if (!item) return;
+      if (dragging.kind === "capture") {
+        ungroupCapture(dragging.captureId);
+        setRailOrder((currentOrder) => moveRailItem(currentOrder, item, intent.target, intent.action));
+      } else {
+        setRailOrder((currentOrder) => moveRailItem(currentOrder, item, intent.target, intent.action));
+      }
+      await addEvent("rail_reordered", dragging.kind === "capture" ? [dragging.captureId] : [], {
+        groupId: dragging.kind === "group" ? dragging.groupId : undefined,
+        sourceOrigin: currentOrigin()
+      });
+      return;
+    }
+
+    if (intent.scope === "rail" && intent.action === "create-folder") {
+      if (dragging.kind !== "capture") return;
+      await createOrUpdateGroup(dragging.captureId, intent.target.id);
+      return;
+    }
+
+    if (intent.scope === "rail" && intent.action === "add-to-folder") {
+      if (dragging.kind !== "capture") return;
+      await addCaptureToGroup(dragging.captureId, intent.target.id);
+      return;
+    }
+
+    if (intent.scope === "folder" && (intent.action === "insert-before" || intent.action === "insert-after")) {
+      if (dragging.kind !== "capture") return;
+      await moveCaptureIntoGroup(dragging.captureId, intent.groupId, intent.targetCaptureId, intent.action);
+      return;
+    }
+
+    if (intent.scope === "folder" && intent.action === "add-to-folder") {
+      if (dragging.kind !== "capture") return;
+      await addCaptureToGroup(dragging.captureId, intent.groupId);
+    }
   };
 
   const createOrUpdateGroup = async (sourceCaptureId: string, targetCaptureId: string) => {
@@ -393,34 +414,50 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
     };
     setGroups((currentGroups) => [
       group,
-      ...currentGroups
-        .map((item) => ({
-          ...item,
-          captureIds: item.captureIds.filter((id) => id !== sourceCaptureId && id !== targetCaptureId)
-        }))
-        .filter((item) => item.captureIds.length > 0)
+      ...removeCapturesFromGroups(currentGroups, [sourceCaptureId, targetCaptureId])
     ]);
     setCaptures((currentCaptures) =>
       currentCaptures.map((capture) =>
         capture.id === sourceCaptureId || capture.id === targetCaptureId ? { ...capture, groupId: group.id } : capture
       )
     );
+    setRailOrder((currentOrder) => replaceCaptureWithGroupInOrder(currentOrder, sourceCaptureId, targetCaptureId, group.id));
     await addEvent("group_created", group.captureIds, { groupId: group.id, sourceOrigin: currentOrigin() });
   };
 
   const addCaptureToGroup = async (captureId: string, groupId: string) => {
     setGroups((currentGroups) =>
-      currentGroups
-        .map((group) => {
-          const captureIds = group.captureIds.filter((id) => id !== captureId);
-          return group.id === groupId ? { ...group, captureIds: [...captureIds, captureId] } : { ...group, captureIds };
-        })
-        .filter((group) => group.captureIds.length > 0)
+      moveCaptureInGroups(currentGroups, captureId, groupId)
     );
     setCaptures((currentCaptures) =>
       currentCaptures.map((capture) => (capture.id === captureId ? { ...capture, groupId } : capture))
     );
+    setRailOrder((currentOrder) => currentOrder.filter((item) => !(item.kind === "capture" && item.id === captureId)));
     await addEvent("capture_grouped", [captureId], { groupId, sourceOrigin: currentOrigin() });
+  };
+
+  const moveCaptureIntoGroup = async (
+    captureId: string,
+    groupId: string,
+    targetCaptureId: string,
+    position: "insert-before" | "insert-after"
+  ) => {
+    if (captureId === targetCaptureId) return;
+    setGroups((currentGroups) =>
+      moveCaptureInGroups(currentGroups, captureId, groupId, targetCaptureId, position)
+    );
+    setCaptures((currentCaptures) =>
+      currentCaptures.map((capture) => (capture.id === captureId ? { ...capture, groupId } : capture))
+    );
+    setRailOrder((currentOrder) => currentOrder.filter((item) => !(item.kind === "capture" && item.id === captureId)));
+    await addEvent("folder_reordered", [captureId], { groupId, sourceOrigin: currentOrigin() });
+  };
+
+  const ungroupCapture = (captureId: string) => {
+    setGroups((currentGroups) => removeCapturesFromGroups(currentGroups, [captureId]));
+    setCaptures((currentCaptures) =>
+      currentCaptures.map((capture) => (capture.id === captureId ? { ...capture, groupId: undefined } : capture))
+    );
   };
 
   const removeGroup = async (groupId: string) => {
@@ -429,6 +466,7 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
     setCaptures((currentCaptures) =>
       currentCaptures.map((capture) => (capture.groupId === groupId ? { ...capture, groupId: undefined } : capture))
     );
+    setRailOrder((currentOrder) => replaceGroupWithCapturesInOrder(currentOrder, groupId, group?.captureIds ?? []));
     await addEvent("group_removed", group?.captureIds ?? [], { groupId });
   };
 
@@ -447,6 +485,7 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
         .map((group) => ({ ...group, captureIds: group.captureIds.filter((id) => id !== captureId) }))
         .filter((group) => group.captureIds.length > 0)
     );
+    setRailOrder((currentOrder) => currentOrder.filter((item) => !(item.kind === "capture" && item.id === captureId)));
     await addEvent("capture_removed", [captureId], { sourceOrigin: capture.sourceOrigin });
   };
 
@@ -459,6 +498,7 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
           capture
       ),
       groups,
+      railOrder,
       events
     };
     const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
@@ -490,8 +530,11 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
     await sendBackground({ type: "JUSTSNAP_SET_PENDING_USAGE", pending }).catch(() => undefined);
     await addEvent(eventType, captureIds, { groupId, sourceOrigin, confidence: "intent" });
   };
-  const visibleGroupCount = groups.filter((group) => group.captureIds.some((captureId) => captures.some((capture) => capture.id === captureId))).length;
-  const railLayout = dockLayoutForCount(visibleGroupCount + ungroupedCaptures.length);
+  const orderedRailOrder = useMemo(
+    () => normalizeRailOrderForState(railOrder, captures, groups),
+    [captures, groups, railOrder]
+  );
+  const railLayout = dockLayoutForCount(orderedRailOrder.length);
 
   return (
     <>
@@ -523,14 +566,14 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
         <LibraryView
           captures={captures}
           groups={groups}
-          ungroupedCaptures={ungroupedCaptures}
+          railOrder={orderedRailOrder}
           blobCache={blobCache}
+          dragging={dragging}
           recentlyAddedCaptureId={recentlyAddedCaptureId}
           layout={railLayout}
           onStartDrag={startItemDrag}
           onEndDrag={finishItemDrag}
-          onDropCapture={dropOnCapture}
-          onDropGroup={dropOnGroup}
+          onDropIntent={applyRailDropIntent}
           onRemoveGroup={removeGroup}
           onRemoveCapture={removeCapture}
         />
@@ -554,6 +597,144 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
       )}
     </>
   );
+}
+
+function dragToRailItem(drag: InternalDrag): RailOrderItem | undefined {
+  if (drag.kind === "capture") return { kind: "capture", id: drag.captureId };
+  if (drag.kind === "group") return { kind: "group", id: drag.groupId };
+  return undefined;
+}
+
+function normalizeRailOrderForState(order: RailOrderItem[], captures: Capture[], groups: CaptureGroup[]): RailOrderItem[] {
+  const captureById = new Map(captures.map((capture) => [capture.id, capture]));
+  const visibleGroupIds = groups
+    .filter((group) => group.captureIds.some((captureId) => captureById.has(captureId)))
+    .map((group) => group.id);
+  const topLevelCaptureIds = captures.filter((capture) => !capture.groupId).map((capture) => capture.id);
+  const seen = new Set<string>();
+  const normalized: RailOrderItem[] = [];
+
+  for (const item of order) {
+    const key = railItemKey(item);
+    if (seen.has(key)) continue;
+    if (item.kind === "group" && visibleGroupIds.includes(item.id)) {
+      normalized.push(item);
+      seen.add(key);
+    }
+    if (item.kind === "capture" && topLevelCaptureIds.includes(item.id)) {
+      normalized.push(item);
+      seen.add(key);
+    }
+  }
+
+  for (const groupId of visibleGroupIds) {
+    const item = { kind: "group" as const, id: groupId };
+    if (!seen.has(railItemKey(item))) normalized.push(item);
+  }
+  for (const captureId of topLevelCaptureIds) {
+    const item = { kind: "capture" as const, id: captureId };
+    if (!seen.has(railItemKey(item))) normalized.push(item);
+  }
+
+  return normalized;
+}
+
+function prependRailItem(order: RailOrderItem[], item: RailOrderItem): RailOrderItem[] {
+  return [item, ...order.filter((orderItem) => railItemKey(orderItem) !== railItemKey(item))];
+}
+
+function moveRailItem(
+  order: RailOrderItem[],
+  source: RailOrderItem,
+  target: RailOrderItem,
+  position: "insert-before" | "insert-after"
+): RailOrderItem[] {
+  const sourceKey = railItemKey(source);
+  const targetKey = railItemKey(target);
+  if (sourceKey === targetKey) return order;
+  const withoutSource = order.filter((item) => railItemKey(item) !== sourceKey);
+  const targetIndex = withoutSource.findIndex((item) => railItemKey(item) === targetKey);
+  if (targetIndex < 0) return prependRailItem(withoutSource, source);
+  const insertIndex = position === "insert-before" ? targetIndex : targetIndex + 1;
+  return [
+    ...withoutSource.slice(0, insertIndex),
+    source,
+    ...withoutSource.slice(insertIndex)
+  ];
+}
+
+function replaceCaptureWithGroupInOrder(
+  order: RailOrderItem[],
+  sourceCaptureId: string,
+  targetCaptureId: string,
+  groupId: string
+): RailOrderItem[] {
+  const next: RailOrderItem[] = [];
+  let inserted = false;
+  for (const item of order) {
+    if (item.kind === "capture" && item.id === sourceCaptureId) continue;
+    if (item.kind === "capture" && item.id === targetCaptureId) {
+      if (!inserted) {
+        next.push({ kind: "group", id: groupId });
+        inserted = true;
+      }
+      continue;
+    }
+    next.push(item);
+  }
+  return inserted ? next : prependRailItem(next, { kind: "group", id: groupId });
+}
+
+function replaceGroupWithCapturesInOrder(order: RailOrderItem[], groupId: string, captureIds: string[]): RailOrderItem[] {
+  const replacements = captureIds.map((id) => ({ kind: "capture" as const, id }));
+  const next: RailOrderItem[] = [];
+  let inserted = false;
+  for (const item of order) {
+    if (item.kind === "group" && item.id === groupId) {
+      next.push(...replacements);
+      inserted = true;
+      continue;
+    }
+    next.push(item);
+  }
+  return inserted ? next : [...replacements, ...next];
+}
+
+function removeCapturesFromGroups(groups: CaptureGroup[], captureIdsToRemove: string[]): CaptureGroup[] {
+  const removeSet = new Set(captureIdsToRemove);
+  return groups
+    .map((group) => ({ ...group, captureIds: group.captureIds.filter((captureId) => !removeSet.has(captureId)) }))
+    .filter((group) => group.captureIds.length > 0);
+}
+
+function moveCaptureInGroups(
+  groups: CaptureGroup[],
+  captureId: string,
+  targetGroupId: string,
+  targetCaptureId?: string,
+  position: "insert-before" | "insert-after" = "insert-after"
+): CaptureGroup[] {
+  return groups
+    .map((group) => {
+      const withoutCapture = group.captureIds.filter((id) => id !== captureId);
+      if (group.id !== targetGroupId) return { ...group, captureIds: withoutCapture };
+      const targetIndex = targetCaptureId ? withoutCapture.indexOf(targetCaptureId) : -1;
+      const insertIndex =
+        targetIndex < 0 ? withoutCapture.length : position === "insert-before" ? targetIndex : targetIndex + 1;
+      return {
+        ...group,
+        captureIds: [
+          ...withoutCapture.slice(0, insertIndex),
+          captureId,
+          ...withoutCapture.slice(insertIndex)
+        ]
+      };
+    })
+    .filter((group) => group.captureIds.length > 0);
+}
+
+function railItemKey(item: RailOrderItem): string {
+  return `${item.kind}:${item.id}`;
 }
 
 function ActivityView({ events, captures, groups }: { events: ActivityEvent[]; captures: Capture[]; groups: CaptureGroup[] }) {
@@ -720,6 +901,8 @@ function eventLabel(event: ActivityEvent, groups: CaptureGroup[]): string {
     group_downloaded: "Group downloaded",
     capture_drag_started: "Capture drag started",
     group_drag_started: "Group drag started",
+    rail_reordered: "Rail reordered",
+    folder_reordered: "Folder reordered",
     browser_paste_detected: "Browser paste detected",
     browser_drop_detected: "Browser drop detected",
     metadata_exported: "Metadata exported"
