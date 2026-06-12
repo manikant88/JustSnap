@@ -37,8 +37,11 @@ export function dockLayoutForCount(count: number, maxHeight = railLibraryHeight(
     return withDockSurfaceWidth({ baseSize: Math.max(minSize, baseSize), gap: minGap });
   }
 
-  const baseSize = Math.max(minCompressedSize, availableHeight / Math.max(1, count));
-  return withDockSurfaceWidth({ baseSize, gap: 0 });
+  const baseSize = Math.max(
+    minCompressedSize,
+    (availableHeight - Math.max(0, count - 1) * minGap) / Math.max(1, count)
+  );
+  return withDockSurfaceWidth({ baseSize, gap: minGap });
 }
 
 export function dockCaptureThumbnailSize(baseSize: number, influence: number): number {
@@ -140,7 +143,7 @@ function withDockSurfaceWidth(layout: Omit<DockLayout, "surfaceWidth">): DockLay
 }
 
 function railLibraryHeight(): number {
-  const railHeight = Math.min(window.innerHeight * 0.8, window.innerHeight - 24);
+  const railHeight = Math.min(window.innerHeight * 0.9, window.innerHeight - 24);
   return Math.max(0, railHeight);
 }
 

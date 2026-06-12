@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Files, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import type { Capture, CaptureGroup, RailOrderItem } from "../../../shared/types";
 import {
   dockCapturePreviewFrame,
@@ -12,6 +12,7 @@ import {
 } from "../dockLayout";
 import type { DockLayout } from "../dockLayout";
 import type { InternalDrag, RailDropIntent } from "../types";
+import { verticalDropZoneForElement } from "./dndIntent";
 
 type RailEntry =
   | { kind: "group"; group: CaptureGroup; captures: Capture[] }
@@ -30,10 +31,12 @@ export function LibraryView(props: {
   onDropIntent: (intent: RailDropIntent) => void;
   onRemoveGroup: (groupId: string) => void;
   onRemoveCapture: (captureId: string) => void;
+  onInteractionChange: (active: boolean) => void;
 }) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [dropIntent, setDropIntent] = useState<RailDropIntent | null>(null);
+  const onInteractionChange = props.onInteractionChange;
   const focusedIndex = hoveredIndex;
   const visibleGroups = useMemo(
     () =>
@@ -75,12 +78,16 @@ export function LibraryView(props: {
     return () => document.removeEventListener("pointerdown", closeActiveGroup, true);
   }, [activeGroupId]);
 
+  useEffect(() => {
+    if (!props.dragging) setDropIntent(null);
+  }, [props.dragging]);
+
+  useEffect(() => {
+    onInteractionChange(hoveredIndex !== null || activeGroupId !== null);
+  }, [activeGroupId, hoveredIndex, onInteractionChange]);
+
   if (!props.captures.length) {
-    return (
-      <div className="justsnap-empty" title="Captured screenshots will appear here">
-        <Files size={22} />
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -579,11 +586,7 @@ function folderIntentForCapture(
 }
 
 function verticalDropZone(event: React.DragEvent): "before" | "center" | "after" {
-  const rect = event.currentTarget.getBoundingClientRect();
-  const y = event.clientY - rect.top;
-  if (y < rect.height * 0.25) return "before";
-  if (y > rect.height * 0.75) return "after";
-  return "center";
+  return verticalDropZoneForElement(event.currentTarget, event.clientY);
 }
 
 function railIntentClass(intent: RailDropIntent | null, item: RailOrderItem): string {

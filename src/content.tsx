@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { arrayMove } from "@dnd-kit/sortable";
 import {
   Camera,
   Settings,
@@ -30,6 +31,7 @@ import type {
 const PENDING_USAGE_MS = 2 * 60 * 1000;
 const MIN_SELECTION_WIDTH = 32;
 const MIN_SELECTION_HEIGHT = 32;
+const RAIL_CONTROL_ENTRY_COUNT = 4;
 
 let root: ReturnType<typeof createRoot> | undefined;
 let host: HTMLDivElement | undefined;
@@ -79,6 +81,7 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
   const [loaded, setLoaded] = useState(false);
   const [captureMode, setCaptureMode] = useState(false);
   const [captureHidden, setCaptureHidden] = useState(false);
+  const [railInteractionActive, setRailInteractionActive] = useState(false);
   const [viewportCapture, setViewportCapture] = useState<CaptureImage | null>(null);
   const [start, setStart] = useState<Point | null>(null);
   const [current, setCurrent] = useState<Point | null>(null);
@@ -534,35 +537,35 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
     () => normalizeRailOrderForState(railOrder, captures, groups),
     [captures, groups, railOrder]
   );
-  const railLayout = dockLayoutForCount(orderedRailOrder.length);
+  const railLayout = dockLayoutForCount(
+    orderedRailOrder.length + RAIL_CONTROL_ENTRY_COUNT,
+    railInteractionActive ? Number.POSITIVE_INFINITY : undefined
+  );
+  const railStyle = {
+    "--justsnap-rail-surface": `${railLayout.surfaceWidth}px`,
+    "--justsnap-dock-base": `${railLayout.baseSize}px`,
+    "--justsnap-dock-gap": `${railLayout.gap}px`
+  } as React.CSSProperties;
 
   return (
     <>
       <style>{styles}</style>
-      <div className={["justsnap-toolbar", captureHidden ? "justsnap-hidden" : ""].join(" ")}>
-        <button title="Capture" onClick={beginCapture}>
-          <Camera size={18} />
-        </button>
-        <button title="Customize shortcuts" onClick={openShortcutSettings}>
-          <Settings size={18} />
-        </button>
-        {error && (
-          <button className="justsnap-error-dot" title={error} onClick={() => setError("")}>
-            !
-          </button>
-        )}
-        <button title="Close JustSnap" onClick={closeRail}>
-          <X size={19} />
-        </button>
-      </div>
-      <div
-        className={["justsnap-rail-backdrop", captureHidden ? "justsnap-hidden" : ""].join(" ")}
-        style={{ "--justsnap-rail-surface": `${railLayout.surfaceWidth}px` } as React.CSSProperties}
-      />
       <aside
-        className={["justsnap-rail", captureHidden ? "justsnap-hidden" : ""].join(" ")}
-        style={{ "--justsnap-rail-surface": `${railLayout.surfaceWidth}px` } as React.CSSProperties}
+        className={[
+          "justsnap-rail",
+          railInteractionActive ? "justsnap-rail-expanded" : "",
+          captureHidden ? "justsnap-hidden" : ""
+        ].join(" ")}
+        style={railStyle}
       >
+        <div className="justsnap-rail-control-slot">
+          <button className="justsnap-rail-control" title="Capture" onClick={beginCapture}>
+            <Camera size={18} />
+          </button>
+        </div>
+        <div className="justsnap-rail-separator-slot">
+          <div className="justsnap-rail-separator" />
+        </div>
         <LibraryView
           captures={captures}
           groups={groups}
@@ -576,7 +579,22 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
           onDropIntent={applyRailDropIntent}
           onRemoveGroup={removeGroup}
           onRemoveCapture={removeCapture}
+          onInteractionChange={setRailInteractionActive}
         />
+        <div className="justsnap-rail-separator-slot">
+          <div className="justsnap-rail-separator" />
+        </div>
+        <div className="justsnap-rail-control-slot justsnap-settings-control-hidden">
+          <button className="justsnap-rail-control" title="Customize shortcuts" onClick={openShortcutSettings}>
+            <Settings size={18} />
+            {error && <span className="justsnap-control-badge" aria-label={error} />}
+          </button>
+        </div>
+        <div className="justsnap-rail-control-slot">
+          <button className="justsnap-rail-control" title="Close JustSnap" onClick={closeRail}>
+            <X size={19} />
+          </button>
+        </div>
       </aside>
 
       {captureMode && (
@@ -652,15 +670,21 @@ function moveRailItem(
   const sourceKey = railItemKey(source);
   const targetKey = railItemKey(target);
   if (sourceKey === targetKey) return order;
-  const withoutSource = order.filter((item) => railItemKey(item) !== sourceKey);
-  const targetIndex = withoutSource.findIndex((item) => railItemKey(item) === targetKey);
-  if (targetIndex < 0) return prependRailItem(withoutSource, source);
-  const insertIndex = position === "insert-before" ? targetIndex : targetIndex + 1;
-  return [
-    ...withoutSource.slice(0, insertIndex),
-    source,
-    ...withoutSource.slice(insertIndex)
-  ];
+  const sourceIndex = order.findIndex((item) => railItemKey(item) === sourceKey);
+  const targetIndex = order.findIndex((item) => railItemKey(item) === targetKey);
+  if (targetIndex < 0) return order;
+  if (sourceIndex < 0) {
+    const insertIndex = position === "insert-before" ? targetIndex : targetIndex + 1;
+    return [
+      ...order.slice(0, insertIndex),
+      source,
+      ...order.slice(insertIndex)
+    ];
+  }
+  const targetOffset = position === "insert-after" ? 1 : 0;
+  const adjustedTargetIndex = targetIndex + targetOffset;
+  const destinationIndex = sourceIndex < adjustedTargetIndex ? adjustedTargetIndex - 1 : adjustedTargetIndex;
+  return arrayMove(order, sourceIndex, Math.max(0, Math.min(order.length - 1, destinationIndex)));
 }
 
 function replaceCaptureWithGroupInOrder(

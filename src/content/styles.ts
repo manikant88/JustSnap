@@ -2,83 +2,139 @@ export const styles = `
   :host, * { box-sizing: border-box; }
   button, input { font: inherit; }
   .justsnap-hidden { opacity: 0 !important; pointer-events: none !important; }
-  .justsnap-toolbar {
-    position: fixed;
-    top: 16px;
-    right: 16px;
-    z-index: 2147483647;
-    min-height: 42px;
-    padding: 5px;
-    border: 1px solid #d8e0eb;
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    color: #172033;
-    background: rgba(255, 255, 255, 0.94);
-    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    backdrop-filter: blur(10px);
-  }
   .justsnap-rail {
     position: fixed;
     top: 50%;
-    right: 0;
+    right: 14px;
     z-index: 2147483646;
-    width: var(--justsnap-rail-surface, 74px);
-    height: 80vh;
-    max-height: calc(100vh - 24px);
+    width: max(56px, var(--justsnap-rail-surface, 74px));
+    height: auto;
+    max-height: min(90vh, calc(100vh - 24px));
     display: flex;
     flex-direction: column;
-    color: #172033;
-    background: transparent;
-    border: 0;
-    border-radius: 0;
-    box-shadow: none;
+    align-items: flex-end;
+    justify-content: center;
+    color: rgba(246, 250, 255, 0.92);
+    background:
+      radial-gradient(circle at 32% 4%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.07) 28%, rgba(255, 255, 255, 0) 54%),
+      linear-gradient(105deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.035) 38%, rgba(255, 255, 255, 0.095) 72%, rgba(255, 255, 255, 0.045)),
+      linear-gradient(180deg, rgba(31, 37, 46, 0.58), rgba(17, 21, 29, 0.5));
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    border-radius: 16px;
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.34),
+      inset 0 -1px 1px rgba(255, 255, 255, 0.12),
+      inset 1px 0 0 rgba(255, 255, 255, 0.12),
+      inset -1px 0 0 rgba(0, 0, 0, 0.16),
+      0 22px 52px rgba(3, 7, 18, 0.3),
+      0 2px 8px rgba(255, 255, 255, 0.08);
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     overflow: visible;
     translate: 0 -50%;
+    backdrop-filter: blur(26px) saturate(190%) brightness(1.08);
+    -webkit-backdrop-filter: blur(26px) saturate(190%) brightness(1.08);
   }
-  .justsnap-rail-backdrop {
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 2147483645;
-    width: calc(var(--justsnap-rail-surface, 74px) + 22px);
-    background: linear-gradient(
-      to left,
-      rgba(15, 23, 42, 0.16) 0%,
-      rgba(15, 23, 42, 0.08) 52%,
-      rgba(15, 23, 42, 0.00) 100%
-    );
+  .justsnap-rail-expanded {
+    max-height: none;
+  }
+  .justsnap-rail::before,
+  .justsnap-rail::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
     pointer-events: none;
   }
-  .justsnap-toolbar button {
-    width: 32px;
-    min-width: 32px;
-    height: 32px;
+  .justsnap-rail::before {
+    z-index: 0;
+    background:
+      linear-gradient(90deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.035) 24%, rgba(255, 255, 255, 0) 56%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 18%, rgba(255, 255, 255, 0.06) 100%);
+    opacity: 0.82;
+    mix-blend-mode: screen;
+  }
+  .justsnap-rail::after {
+    z-index: 0;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+      inset 0 0 28px rgba(255, 255, 255, 0.045),
+      inset 0 -18px 30px rgba(0, 0, 0, 0.13);
+  }
+  .justsnap-rail-control-slot {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    height: calc(var(--justsnap-dock-base, 52px) + max(4px, var(--justsnap-dock-gap, 12px)));
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 7px;
+    pointer-events: auto;
+  }
+  .justsnap-rail-control {
+    position: relative;
+    width: var(--justsnap-dock-base, 52px);
+    min-width: 0;
+    height: var(--justsnap-dock-base, 52px);
     border: 0;
-    border-radius: 7px;
+    border-radius: 10px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    color: #24324a;
-    background: transparent;
+    color: rgba(245, 250, 255, 0.9);
+    background: rgba(255, 255, 255, 0.025);
     cursor: pointer;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0);
+    transition: background 120ms ease, color 120ms ease, scale 120ms ease, box-shadow 120ms ease;
   }
-  .justsnap-toolbar button:hover:not(:disabled) { background: #f1f5f9; }
-  .justsnap-toolbar button:disabled { opacity: 0.45; cursor: not-allowed; }
-  .justsnap-error-dot {
-    width: 22px !important;
-    min-width: 22px !important;
-    height: 22px !important;
-    border-radius: 999px !important;
-    color: #8f1f1f;
-    background: #fff2f2;
-    box-shadow: inset 0 0 0 1px #fac5c5;
-    font-size: 12px;
-    font-weight: 800;
+  .justsnap-rail-control svg {
+    width: min(20px, max(13px, calc(var(--justsnap-dock-base, 52px) * 0.42)));
+    height: min(20px, max(13px, calc(var(--justsnap-dock-base, 52px) * 0.42)));
+  }
+  .justsnap-rail-control:hover:not(:disabled),
+  .justsnap-rail-control:focus-visible {
+    color: #fff;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.08)),
+      rgba(255, 255, 255, 0.08);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.24),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.08),
+      0 8px 18px rgba(3, 7, 18, 0.16);
+    outline: none;
+    scale: 1.06;
+  }
+  .justsnap-rail-control:disabled { opacity: 0.45; cursor: not-allowed; }
+  .justsnap-settings-control-hidden { display: none; }
+  .justsnap-rail-separator-slot {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    height: max(12px, calc(var(--justsnap-dock-base, 52px) * 0.42));
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 7px;
+    pointer-events: none;
+  }
+  .justsnap-rail-separator {
+    width: calc(100% - 20px);
+    height: 1px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0));
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
+  }
+  .justsnap-control-badge {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: rgba(239, 68, 68, 0.9);
+    box-shadow: 0 0 0 2px rgba(18, 22, 29, 0.78);
   }
   .justsnap-empty {
     margin: 18px auto;
@@ -94,7 +150,7 @@ export const styles = `
   .justsnap-library {
     position: relative;
     z-index: 1;
-    flex: 1;
+    flex: 0 0 auto;
     align-self: flex-end;
     width: min(380px, calc(100vw - 16px));
     min-height: 0;
@@ -104,7 +160,7 @@ export const styles = `
     justify-content: center;
     align-items: flex-end;
     overflow: visible;
-    padding: 16px 9px 16px 0;
+    padding: 0 9px 0 0;
     background: transparent;
     outline: none;
     pointer-events: auto;
@@ -151,7 +207,7 @@ export const styles = `
     z-index: 1;
     width: 52px;
     height: 52px;
-    border: 2px solid transparent;
+    border: 0;
     border-radius: 8px;
     padding: 0;
     overflow: hidden;
@@ -166,7 +222,7 @@ export const styles = `
     animation: justsnap-capture-added 520ms cubic-bezier(0.18, 0.9, 0.22, 1.18);
   }
   .justsnap-dock-image-added-focus {
-    border-color: #0ea5e9;
+    border: 2px solid #0ea5e9;
     box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.22), 0 10px 24px rgba(15, 32, 48, 0.24);
     z-index: 3;
   }
@@ -180,14 +236,14 @@ export const styles = `
   }
   .justsnap-dock-image-button:hover,
   .justsnap-dock-image-button:focus-visible {
-    border-color: #0ea5e9;
+    border: 2px solid #0ea5e9;
     box-shadow: 0 10px 24px rgba(15, 32, 48, 0.24);
     z-index: 2;
   }
   .justsnap-drop-create-folder .justsnap-dock-image-button,
   .justsnap-drop-add-folder .justsnap-dock-folder-button,
   .justsnap-drop-add-folder .justsnap-dock-image-button {
-    border-color: #22c55e !important;
+    border: 2px solid #22c55e !important;
     box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.18), 0 12px 28px rgba(15, 32, 48, 0.24) !important;
   }
   .justsnap-drop-create-folder .justsnap-dock-image-button::after,
