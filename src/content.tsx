@@ -331,7 +331,7 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
       }
     });
 
-    const dragImage = dragPreviewElement(event.currentTarget);
+    const dragImage = dragPreviewElement(event.currentTarget, drag.kind);
     if (dragImage) transfer.setDragImage(dragImage, 24, 24);
 
     void recordUsage(drag.kind === "group" ? "drag" : "drag", captureIds, groupId ? "group_drag_started" : "capture_drag_started", groupId);

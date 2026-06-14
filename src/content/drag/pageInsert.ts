@@ -1,7 +1,4 @@
-import type { Capture, CaptureImage } from "../../../shared/types";
-import { loadImage } from "../imageTools";
-
-const WHATSAPP_WIDE_IMAGE_RATIO = 2.4;
+import type { Capture } from "../../../shared/types";
 
 export type PageInsertEnvironment = {
   currentOrigin: () => string;
@@ -14,14 +11,18 @@ export async function placeFilesInCurrentPage(
   env: PageInsertEnvironment,
   preferredTarget?: Element
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (env.currentOrigin().includes("web.whatsapp.com")) {
-    const whatsappFiles = await prepareFilesForWhatsApp(files);
-    const whatsappAttached = await attachFilesViaWhatsApp(whatsappFiles, env, preferredTarget);
-    if (whatsappAttached) return { ok: true };
+  if (files.length > 1 && isWhatsAppOrigin(env.currentOrigin())) {
+    const pasted = await pasteFilesIntoPage(files, env, preferredTarget, 1800);
+    if (pasted) return { ok: true };
     return {
       ok: false,
-      error: "WhatsApp did not accept the image through its attachment input."
+      error: "WhatsApp did not accept the folder images through paste."
     };
+  }
+
+  if (files.length === 1) {
+    const pasted = await pasteFilesIntoPage(files, env, preferredTarget);
+    if (pasted) return { ok: true };
   }
 
   const fileInput = findAttachmentInput(env, preferredTarget);
@@ -34,9 +35,8 @@ export async function placeFilesInCurrentPage(
   if (target) {
     target.focus();
     await nextAnimationFrame();
-    const pasted = await withInsertionSignal(() => dispatchPasteWithFiles(target, files), env);
-    const dropped = pasted || (await withInsertionSignal(() => dispatchDropWithFiles(target, files), env));
-    if (pasted || dropped) return { ok: true };
+    const dropped = await withInsertionSignal(() => dispatchDropWithFiles(target, files), env);
+    if (dropped) return { ok: true };
   }
 
   const fallbackTarget = findPageInsertTarget(env);
@@ -50,9 +50,13 @@ export async function placeFilesInCurrentPage(
   fallbackTarget.focus();
   await nextAnimationFrame();
 
-  const pasted = await withInsertionSignal(() => dispatchPasteWithFiles(fallbackTarget, files), env);
-  const dropped = pasted || (await withInsertionSignal(() => dispatchDropWithFiles(fallbackTarget, files), env));
-  if (pasted || dropped) return { ok: true };
+  const dropped = await withInsertionSignal(() => dispatchDropWithFiles(fallbackTarget, files), env);
+  if (dropped) return { ok: true };
+
+  if (files.length > 1) {
+    const pasted = await pasteFilesIntoPage(files, env, preferredTarget);
+    if (pasted) return { ok: true };
+  }
 
   return {
     ok: false,
@@ -60,142 +64,21 @@ export async function placeFilesInCurrentPage(
   };
 }
 
-async function attachFilesViaWhatsApp(
+async function pasteFilesIntoPage(
   files: File[],
   env: PageInsertEnvironment,
-  preferredTarget?: Element
+  preferredTarget?: Element,
+  timeoutMs = 1200
 ): Promise<boolean> {
-  const existingInput = findWhatsAppPhotoInput(env, preferredTarget);
-  if (existingInput) {
-    const assigned = await withInsertionSignal(() => assignFilesToInput(existingInput, files), env, 2200);
-    if (assigned) return true;
-  }
-
-  const attachButton = findWhatsAppAttachButton(env);
-  if (!attachButton) return false;
-
-  attachButton.click();
-  await sleep(250);
-  const openedInput = await waitForWhatsAppPhotoInput(1600, env, preferredTarget);
-  if (!openedInput) return false;
-
-  return withInsertionSignal(() => assignFilesToInput(openedInput, files), env, 2600);
+  const target = resolveInsertTarget(env, preferredTarget) ?? findPageInsertTarget(env);
+  if (!target) return false;
+  target.focus();
+  await nextAnimationFrame();
+  return withInsertionSignal(() => dispatchPasteWithFiles(target, files), env, timeoutMs);
 }
 
-async function prepareFilesForWhatsApp(files: File[]): Promise<File[]> {
-  return Promise.all(files.map((file) => padWideImageForWhatsApp(file)));
-}
-
-async function padWideImageForWhatsApp(file: File): Promise<File> {
-  const url = URL.createObjectURL(file);
-  let image: CaptureImage | undefined;
-  try {
-    image = await loadImage(url);
-  } catch {
-    return file;
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-  const ratio = image.width / image.height;
-  if (ratio <= WHATSAPP_WIDE_IMAGE_RATIO) return file;
-
-  const size = image.width;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const context = canvas.getContext("2d");
-  if (!context) return file;
-
-  const top = Math.round((size - image.height) / 2);
-  const bitmap = await loadBitmap(file);
-  context.fillStyle = await sampledEdgeColor(bitmap);
-  context.fillRect(0, 0, size, size);
-  context.drawImage(bitmap, 0, top, image.width, image.height);
-  if ("close" in bitmap && typeof bitmap.close === "function") bitmap.close();
-  const blob = await canvasToBlob(canvas);
-  return new File([blob], "", { type: "image/png" });
-}
-
-async function loadBitmap(file: File): Promise<ImageBitmap> {
-  return createImageBitmap(file);
-}
-
-async function sampledEdgeColor(bitmap: ImageBitmap): Promise<string> {
-  const sample = document.createElement("canvas");
-  sample.width = 1;
-  sample.height = 1;
-  const context = sample.getContext("2d", { willReadFrequently: true });
-  if (!context) return "transparent";
-  context.drawImage(bitmap, 0, 0, bitmap.width, 1, 0, 0, 1, 1);
-  const [red, green, blue, alpha] = context.getImageData(0, 0, 1, 1).data;
-  if (alpha === 0) return "transparent";
-  return `rgb(${red}, ${green}, ${blue})`;
-}
-
-function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (blob) resolve(blob);
-      else reject(new Error("Could not prepare WhatsApp image."));
-    }, "image/png");
-  });
-}
-
-function findWhatsAppAttachButton(env: PageInsertEnvironment): HTMLElement | undefined {
-  const selectors = [
-    'button[aria-label*="Attach" i]',
-    'div[role="button"][aria-label*="Attach" i]',
-    'button[title*="Attach" i]',
-    'span[data-icon="plus"]',
-    'span[data-icon="attach-menu-plus"]',
-    'span[data-icon="clip"]'
-  ];
-  for (const selector of selectors) {
-    const element = document.querySelector<HTMLElement>(selector);
-    const clickable = element?.closest<HTMLElement>('button, [role="button"]') ?? element;
-    if (clickable && !env.isJustSnapNode(clickable) && isVisibleElement(clickable)) return clickable;
-  }
-
-  const footerButtons = Array.from(document.querySelectorAll<HTMLElement>('footer button, footer [role="button"]'));
-  return footerButtons.find((button) => !env.isJustSnapNode(button) && isVisibleElement(button));
-}
-
-async function waitForWhatsAppPhotoInput(
-  timeoutMs: number,
-  env: PageInsertEnvironment,
-  nearTarget?: Element
-): Promise<HTMLInputElement | undefined> {
-  const existing = findWhatsAppPhotoInput(env, nearTarget);
-  if (existing) return existing;
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    await sleep(100);
-    const input = findWhatsAppPhotoInput(env, nearTarget);
-    if (input) return input;
-  }
-  return undefined;
-}
-
-function findWhatsAppPhotoInput(env: PageInsertEnvironment, nearTarget?: Element): HTMLInputElement | undefined {
-  const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]'));
-  const pageInputs = inputs.filter((input) => !env.isJustSnapNode(input));
-  const imageInputs = pageInputs.filter(isWhatsAppPhotoVideoInput);
-  const nearDialog = nearTarget?.closest('[role="dialog"], footer, main');
-  if (nearDialog) {
-    const nearby = imageInputs.find((input) => nearDialog.contains(input));
-    if (nearby) return nearby;
-  }
-  return imageInputs[0];
-}
-
-function isWhatsAppPhotoVideoInput(input: HTMLInputElement): boolean {
-  const accept = input.accept.toLowerCase();
-  if (!accept) return false;
-  const supportsRasterImage =
-    accept.includes("image/*") || accept.includes("image/jpeg") || accept.includes("image/jpg") || accept.includes("image/png");
-  const supportsVideo = accept.includes("video/");
-  const looksStickerOnly = accept.includes("webp") && !supportsVideo && !accept.includes("jpeg") && !accept.includes("jpg") && !accept.includes("png");
-  return supportsRasterImage && !looksStickerOnly;
+function isWhatsAppOrigin(origin: string): boolean {
+  return origin.includes("web.whatsapp.com");
 }
 
 function resolveInsertTarget(env: PageInsertEnvironment, target: Element | undefined): HTMLElement | undefined {

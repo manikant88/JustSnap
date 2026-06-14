@@ -14,11 +14,13 @@ export async function copyFilesToClipboard(files: File[]): Promise<void> {
 export function captureFileForDrag(capture: Capture, blob: Blob | undefined): File | undefined {
   const imageBlob = blob ?? (capture.fullDataUrl ? dataUrlToBlob(capture.fullDataUrl) : undefined);
   if (!imageBlob) return undefined;
-  return new File([imageBlob], "", { type: "image/png" });
+  return new File([imageBlob], "image.png", { type: "image/png" });
 }
 
-export function dragPreviewElement(target: EventTarget): Element | undefined {
+export function dragPreviewElement(target: EventTarget, kind: "capture" | "group"): Element | undefined {
   if (!(target instanceof Element)) return undefined;
+  if (kind === "group") {
+    return target.closest(".justsnap-dock-folder-button") ?? target;
+  }
   return target.querySelector("img") ?? target;
 }
-
