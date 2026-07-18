@@ -5,13 +5,15 @@ import {
   Camera,
   Settings,
   ListChecks,
+  Check,
+  CornerDownLeft,
   X
 } from "lucide-react";
-import { captureImageToBlob, deleteImageBlob, getImageBlob, saveImageBlob } from "../shared/blobStore";
+import { deleteImageBlob, getImageBlob } from "../shared/blobStore";
 import { dockLayoutForCount } from "./content/dockLayout";
 import { captureFileForDrag, copyFilesToClipboard, dragPreviewElement } from "./content/drag/filePayload";
 import { placeFilesInCurrentPage } from "./content/drag/pageInsert";
-import { dataUrlToBlob, loadImage } from "./content/imageTools";
+import { dataUrlToBlob } from "./content/imageTools";
 import { LibraryView } from "./content/rail/LibraryView";
 import { styles } from "./content/styles";
 import type { DragPayload, InternalDrag, Point, RailDropIntent, Rect } from "./content/types";
@@ -20,8 +22,10 @@ import type {
   BackgroundRequest,
   BackgroundResponse,
   Capture,
+  CaptureAddTarget,
   CaptureGroup,
-  CaptureImage,
+  CaptureSelectionResult,
+  CaptureSessionSnapshot,
   ContentMessage,
   LibraryState,
   PendingUsage,
@@ -33,6 +37,8 @@ const MIN_SELECTION_WIDTH = 32;
 const MIN_SELECTION_HEIGHT = 32;
 const RAIL_CONTROL_ENTRY_COUNT = 4;
 
+type DockInputMode = "dock" | "snip";
+
 let root: ReturnType<typeof createRoot> | undefined;
 let host: HTMLDivElement | undefined;
 
@@ -40,16 +46,23 @@ installDestinationDetector();
 
 chrome.runtime.onMessage.addListener((message: ContentMessage) => {
   if (message.type === "JUSTSNAP_SHOW_RAIL") mountRail();
-  if (message.type === "JUSTSNAP_START_CAPTURE") mountRail("start_capture");
+  if (message.type === "JUSTSNAP_START_CAPTURE") mountRail(message);
   if (message.type === "JUSTSNAP_CLOSE_RAIL") unmountRail();
-  if (message.type === "JUSTSNAP_CAPTURE_ERROR") alert(`JustSnap could not capture: ${message.error}`);
+  if (message.type === "JUSTSNAP_CAPTURE_ERROR") alert(`DockSnip could not capture: ${message.error}`);
 });
 
-type ContentCommand = { id: number; type: "start_capture" };
+type ContentCommand =
+  | { id: number; type: "start_capture"; session: CaptureSessionSnapshot };
+
+type PageImageAffordance = {
+  imageUrl: string;
+  rect: Rect;
+  status: "idle" | "saving" | "saved";
+};
 
 let commandId = 0;
 
-function mountRail(commandType?: ContentCommand["type"]) {
+function mountRail(message?: Extract<ContentMessage, { type: "JUSTSNAP_START_CAPTURE" }>) {
   if (host && !host.isConnected) {
     root = undefined;
     host = undefined;
@@ -63,7 +76,11 @@ function mountRail(commandType?: ContentCommand["type"]) {
     shadow.append(app);
     root = createRoot(app);
   }
-  root?.render(<JustSnapApp command={commandType ? { id: ++commandId, type: commandType } : undefined} />);
+  root?.render(
+    <DockSnipApp
+      command={message ? { id: ++commandId, type: "start_capture", session: message } : undefined}
+    />
+  );
 }
 
 function unmountRail() {
@@ -73,16 +90,18 @@ function unmountRail() {
   host = undefined;
 }
 
-function JustSnapApp({ command }: { command?: ContentCommand }) {
+function DockSnipApp({ command }: { command?: ContentCommand }) {
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [groups, setGroups] = useState<CaptureGroup[]>([]);
   const [railOrder, setRailOrder] = useState<RailOrderItem[]>([]);
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [captureMode, setCaptureMode] = useState(false);
+  const [inputMode, setInputMode] = useState<DockInputMode>("dock");
   const [captureHidden, setCaptureHidden] = useState(false);
+  const [captureSession, setCaptureSession] = useState<CaptureSessionSnapshot | null>(null);
+  const [activeAddTarget, setActiveAddTarget] = useState<CaptureAddTarget | null>(null);
+  const [pendingAddCaptureIds, setPendingAddCaptureIds] = useState<string[]>([]);
   const [railInteractionActive, setRailInteractionActive] = useState(false);
-  const [viewportCapture, setViewportCapture] = useState<CaptureImage | null>(null);
   const [start, setStart] = useState<Point | null>(null);
   const [current, setCurrent] = useState<Point | null>(null);
   const [error, setError] = useState("");
@@ -92,17 +111,26 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
   const hasLoggedOpen = useRef(false);
   const pendingDragPayload = useRef<DragPayload | null>(null);
   const lastDragPoint = useRef<Point | null>(null);
+  const pageImageTarget = useRef<HTMLImageElement | null>(null);
+  const captureSessionRef = useRef<CaptureSessionSnapshot | null>(null);
+  const captureSessionPromiseRef = useRef<Promise<CaptureSessionSnapshot> | null>(null);
+  const [pageImageAffordance, setPageImageAffordance] = useState<PageImageAffordance | null>(null);
+  const captureMode = inputMode === "snip";
+
+  const refreshLibrary = useCallback(async () => {
+    const library = await sendBackground<LibraryState>({ type: "JUSTSNAP_GET_LIBRARY" });
+    setCaptures(library.captures);
+    setGroups(library.groups);
+    setRailOrder(library.railOrder);
+    setEvents(library.events);
+    setLoaded(true);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    sendBackground<LibraryState>({ type: "JUSTSNAP_GET_LIBRARY" })
-      .then((library) => {
+    refreshLibrary()
+      .then(() => {
         if (cancelled) return;
-        setCaptures(library.captures);
-        setGroups(library.groups);
-        setRailOrder(library.railOrder);
-        setEvents(library.events);
-        setLoaded(true);
         if (!hasLoggedOpen.current) {
           hasLoggedOpen.current = true;
           void addEvent("rail_opened", []);
@@ -166,6 +194,10 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
     return () => window.clearTimeout(timer);
   }, [recentlyAddedCaptureId]);
 
+  useEffect(() => {
+    captureSessionRef.current = captureSession;
+  }, [captureSession]);
+
   const activeRect = useMemo(() => {
     if (!start || !current) return null;
     return normalizeRect(start, current);
@@ -190,15 +222,32 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
     []
   );
 
-  const beginCapture = async () => {
+  const captureSelection = async (rect: Rect, sessionId = captureSessionRef.current?.sessionId) => {
+    setCaptureHidden(true);
+    await nextAnimationFrame();
+    try {
+      return await sendBackground<CaptureSelectionResult>({
+        type: "JUSTSNAP_CAPTURE_SELECTION",
+        sessionId,
+        rect,
+        viewport: viewportMetrics(),
+        sourceUrl: window.location.href,
+        sourceOrigin: currentOrigin(),
+        pageTitle: document.title || currentOrigin()
+      });
+    } finally {
+      setCaptureHidden(false);
+    }
+  };
+
+  const beginCapture = async (session: CaptureSessionSnapshot) => {
     try {
       setError("");
-      setCaptureHidden(true);
-      await nextAnimationFrame();
-      const dataUrl = await sendBackground<string>({ type: "JUSTSNAP_CAPTURE_VISIBLE" });
-      const image = await loadImage(dataUrl);
-      setViewportCapture(image);
-      setCaptureMode(true);
+      setCaptureSession(session);
+      captureSessionRef.current = session;
+      setActiveAddTarget(session.addTarget ?? null);
+      setPendingAddCaptureIds(session.addTarget ? session.captureIds : []);
+      setInputMode("snip");
       setStart(null);
       setCurrent(null);
       await addEvent("capture_started", [], { sourceOrigin: currentOrigin() });
@@ -206,6 +255,61 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
       setError(errorText(captureError));
     } finally {
       setCaptureHidden(false);
+    }
+  };
+
+  const startAddMode = async (addTarget: CaptureAddTarget) => {
+    setError("");
+    if (captureSessionRef.current) {
+      await finishSnipSession({ keepDestination: false });
+    }
+    setActiveAddTarget(addTarget);
+    setInputMode("dock");
+    setPendingAddCaptureIds([]);
+    setStart(null);
+    setCurrent(null);
+  };
+
+  const activateDockMode = async () => {
+    setError("");
+    if (captureSessionRef.current) {
+      await finishSnipSession({ keepDestination: true });
+      return;
+    }
+    setInputMode("dock");
+    setStart(null);
+    setCurrent(null);
+  };
+
+  const activateSnipMode = async () => {
+    setError("");
+    setInputMode("snip");
+    setStart(null);
+    setCurrent(null);
+    const addTarget = activeAddTarget ?? undefined;
+    const existingSession = captureSessionRef.current;
+    if (existingSession && sameAddTarget(existingSession.addTarget, addTarget)) return;
+
+    const sessionPromise = sendBackground<CaptureSessionSnapshot>({
+      type: "JUSTSNAP_PREPARE_CAPTURE_SESSION",
+      addTarget
+    });
+    captureSessionPromiseRef.current = sessionPromise;
+    try {
+      const session = await sessionPromise;
+      if (captureSessionPromiseRef.current !== sessionPromise) return;
+      captureSessionPromiseRef.current = null;
+      setCaptureSession(session);
+      captureSessionRef.current = session;
+      setPendingAddCaptureIds(session.captureIds);
+      await addEvent("capture_started", [], { sourceOrigin: currentOrigin() });
+    } catch (captureError) {
+      if (captureSessionPromiseRef.current !== sessionPromise) return;
+      captureSessionPromiseRef.current = null;
+      setInputMode("dock");
+      setStart(null);
+      setCurrent(null);
+      setError(errorText(captureError));
     }
   };
 
@@ -222,7 +326,7 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
   };
 
   const finishSelection = async () => {
-    if (!viewportCapture || !start || !current) return;
+    if (!start || !current) return;
     const rect = normalizeRect(start, current);
     setStart(null);
     setCurrent(null);
@@ -232,57 +336,136 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
     }
 
     try {
-      const crop = await cropImage(viewportCapture, rect);
-      const thumb = await resizeImage(crop.dataUrl, 360, 0.84);
-      const id = crypto.randomUUID();
-      const imageBlobKey = `capture-${id}`;
-      const blob = await captureImageToBlob(crop);
-      await saveImageBlob(imageBlobKey, blob);
-      const capture: Capture = {
-        id,
-        sourceUrl: window.location.href,
-        sourceOrigin: currentOrigin(),
-        pageTitle: document.title || currentOrigin(),
-        createdAt: Date.now(),
-        width: crop.width,
-        height: crop.height,
-        thumbnailDataUrl: thumb.dataUrl,
-        imageBlobKey,
-        fullDataUrl: crop.dataUrl
-      };
-      setCaptures((currentCaptures) => [capture, ...currentCaptures]);
-      setRailOrder((currentOrder) => prependRailItem(currentOrder, { kind: "capture", id }));
-      setBlobCache((currentCache) => ({ ...currentCache, [id]: blob }));
-      setRecentlyAddedCaptureId(id);
-      setCaptureMode(false);
-      setViewportCapture(null);
-      await addEvent("capture_created", [id], { sourceOrigin: capture.sourceOrigin });
+      let session = captureSessionRef.current;
+      if (!session && captureSessionPromiseRef.current) {
+        session = await captureSessionPromiseRef.current;
+        captureSessionPromiseRef.current = null;
+        setCaptureSession(session);
+      }
+      const result = await captureSelection(rect, session?.sessionId);
+      const addTarget = result.session?.addTarget ?? session?.addTarget ?? activeAddTarget;
+      const blob = result.capture.fullDataUrl
+        ? await dataUrlToBlob(result.capture.fullDataUrl)
+        : await getImageBlob(result.capture.imageBlobKey);
+      setCaptures((currentCaptures) => [result.capture, ...currentCaptures.filter((capture) => capture.id !== result.capture.id)]);
+      if (addTarget) {
+        setPendingAddCaptureIds((currentIds) => [...currentIds.filter((id) => id !== result.capture.id), result.capture.id]);
+      } else {
+        setRailOrder((currentOrder) => prependRailItem(currentOrder, { kind: "capture", id: result.capture.id }));
+      }
+      setEvents((currentEvents) =>
+        [
+          ...currentEvents,
+          {
+            id: crypto.randomUUID(),
+            type: "capture_created" as const,
+            createdAt: Date.now(),
+            captureIds: [result.capture.id],
+            sourceOrigin: result.capture.sourceOrigin
+          }
+        ].slice(-500)
+      );
+      if (blob) setBlobCache((currentCache) => ({ ...currentCache, [result.capture.id]: blob }));
+      setRecentlyAddedCaptureId(result.capture.id);
+
+      const nextSession = result.session ?? session ?? captureSession;
+      setCaptureSession(nextSession);
+      captureSessionRef.current = nextSession;
+      setStart(null);
+      setCurrent(null);
+      setError("");
     } catch (selectionError) {
       setError(errorText(selectionError));
     }
   };
 
-  const cancelCapture = () => {
-    setCaptureMode(false);
-    setViewportCapture(null);
+  const resetCaptureState = (options: { keepAddTarget?: boolean } = {}) => {
+    setInputMode("dock");
+    setCaptureSession(null);
+    captureSessionRef.current = null;
+    setPendingAddCaptureIds([]);
     setStart(null);
     setCurrent(null);
+    captureSessionPromiseRef.current = null;
+    if (!options.keepAddTarget) setActiveAddTarget(null);
+  };
+
+  const finishSnipSession = async ({ keepDestination }: { keepDestination: boolean }) => {
+    let session = captureSessionRef.current;
+    if (!session && captureSessionPromiseRef.current) {
+      try {
+        session = await captureSessionPromiseRef.current;
+      } catch {
+        session = null;
+      }
+    }
+    const previousTarget = activeAddTarget;
+    setInputMode("dock");
+    setStart(null);
+    setCurrent(null);
+    setCaptureHidden(false);
+    if (!session) {
+      if (!keepDestination) setActiveAddTarget(null);
+      return;
+    }
+    setCaptureSession(null);
+    captureSessionRef.current = null;
+    captureSessionPromiseRef.current = null;
+    await sendBackground({ type: "JUSTSNAP_FINISH_CAPTURE_SESSION", sessionId: session.sessionId }).catch((finishError) =>
+      setError(errorText(finishError))
+    );
+    const library = await sendBackground<LibraryState>({ type: "JUSTSNAP_GET_LIBRARY" }).catch((refreshError) => {
+      setError(errorText(refreshError));
+      return null;
+    });
+    if (library) {
+      setCaptures(library.captures);
+      setGroups(library.groups);
+      setRailOrder(library.railOrder);
+      setEvents(library.events);
+      if (keepDestination && previousTarget?.kind === "capture") {
+        const createdGroup = library.groups.find((group) => group.captureIds.includes(previousTarget.id));
+        if (createdGroup) setActiveAddTarget({ kind: "group", id: createdGroup.id });
+      }
+    }
+    setPendingAddCaptureIds([]);
+    if (!keepDestination) setActiveAddTarget(null);
+  };
+
+  const finishDestination = async () => {
+    await finishSnipSession({ keepDestination: false });
+    setActiveAddTarget(null);
+    setInputMode("dock");
   };
 
   useEffect(() => {
-    if (command?.type === "start_capture") void beginCapture();
+    if (command?.type === "start_capture") void beginCapture(command.session);
   }, [command?.id]);
 
   useEffect(() => {
-    if (!captureMode) return;
-    const cancelOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+    const finishOnShortcut = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" && event.key !== "Enter") return;
+      if (event.key === "Escape") {
+        if (captureMode) {
+          event.preventDefault();
+          event.stopPropagation();
+          void activateDockMode();
+        } else if (activeAddTarget) {
+          event.preventDefault();
+          event.stopPropagation();
+          void finishDestination();
+        }
+        return;
+      }
+      if (!captureMode && !activeAddTarget) return;
       event.preventDefault();
-      cancelCapture();
+      event.stopPropagation();
+      if (activeAddTarget) void finishDestination();
+      else void activateDockMode();
     };
-    document.addEventListener("keydown", cancelOnEscape, true);
-    return () => document.removeEventListener("keydown", cancelOnEscape, true);
-  }, [captureMode]);
+    document.addEventListener("keydown", finishOnShortcut, true);
+    return () => document.removeEventListener("keydown", finishOnShortcut, true);
+  }, [activeAddTarget, captureMode, captureSession]);
 
   const openShortcutSettings = async () => {
     await sendBackground({ type: "JUSTSNAP_OPEN_SHORTCUT_SETTINGS" }).catch((settingsError) => setError(errorText(settingsError)));
@@ -346,9 +529,9 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
     if (!payload || !point) return;
 
     const target = elementAtPoint(point);
-    if (!target || isJustSnapNode(target)) return;
+    if (!target || isDockSnipNode(target)) return;
 
-    const result = await placeFilesInCurrentPage(payload.files, payload.captures, { currentOrigin, isJustSnapNode }, target);
+    const result = await placeFilesInCurrentPage(payload.files, payload.captures, { currentOrigin, isDockSnipNode }, target);
     if (!result.ok) {
       setError(result.error);
       return;
@@ -463,19 +646,46 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
     );
   };
 
+  const leaveDeletedDestination = async () => {
+    const session = captureSessionRef.current;
+    if (session) {
+      await sendBackground({ type: "JUSTSNAP_CANCEL_CAPTURE_SESSION", sessionId: session.sessionId }).catch(() => undefined);
+    }
+    resetCaptureState();
+  };
+
   const removeGroup = async (groupId: string) => {
     const group = groups.find((item) => item.id === groupId);
-    setGroups((currentGroups) => currentGroups.filter((item) => item.id !== groupId));
-    setCaptures((currentCaptures) =>
-      currentCaptures.map((capture) => (capture.groupId === groupId ? { ...capture, groupId: undefined } : capture))
+    if (!group) return;
+    if (activeAddTarget?.kind === "group" && activeAddTarget.id === groupId) {
+      await leaveDeletedDestination();
+    }
+    const captureIds = group.captureIds;
+    const capturesToDelete = captures.filter((capture) => captureIds.includes(capture.id));
+    await Promise.all(capturesToDelete.map((capture) => deleteImageBlob(capture.imageBlobKey).catch(() => undefined)));
+    setBlobCache((currentCache) => {
+      const next = { ...currentCache };
+      for (const captureId of captureIds) delete next[captureId];
+      return next;
+    });
+    setGroups((currentGroups) => removeCapturesFromGroups(currentGroups.filter((item) => item.id !== groupId), captureIds));
+    setCaptures((currentCaptures) => currentCaptures.filter((capture) => !captureIds.includes(capture.id)));
+    setRailOrder((currentOrder) =>
+      currentOrder.filter(
+        (item) =>
+          !(item.kind === "group" && item.id === groupId) &&
+          !(item.kind === "capture" && captureIds.includes(item.id))
+      )
     );
-    setRailOrder((currentOrder) => replaceGroupWithCapturesInOrder(currentOrder, groupId, group?.captureIds ?? []));
-    await addEvent("group_removed", group?.captureIds ?? [], { groupId });
+    await addEvent("group_removed", captureIds, { groupId });
   };
 
   const removeCapture = async (captureId: string) => {
     const capture = captures.find((item) => item.id === captureId);
     if (!capture) return;
+    if (activeAddTarget?.kind === "capture" && activeAddTarget.id === captureId) {
+      await leaveDeletedDestination();
+    }
     await deleteImageBlob(capture.imageBlobKey).catch(() => undefined);
     setBlobCache((currentCache) => {
       const next = { ...currentCache };
@@ -508,7 +718,7 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `justsnap-metadata-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.download = `docksnip-metadata-${new Date().toISOString().slice(0, 10)}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
     await addEvent("metadata_exported", [], { sourceOrigin: currentOrigin() });
@@ -533,9 +743,168 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
     await sendBackground({ type: "JUSTSNAP_SET_PENDING_USAGE", pending }).catch(() => undefined);
     await addEvent(eventType, captureIds, { groupId, sourceOrigin, confidence: "intent" });
   };
+
+  useEffect(() => {
+    if (!loaded || captureMode) {
+      pageImageTarget.current = null;
+      setPageImageAffordance(null);
+      return;
+    }
+
+    const showForImage = (image: HTMLImageElement) => {
+      const imageUrl = image.currentSrc || image.src;
+      if (!isEligiblePageImage(image, imageUrl)) return;
+      pageImageTarget.current = image;
+      setPageImageAffordance({
+        imageUrl,
+        rect: elementRect(image),
+        status: "idle"
+      });
+    };
+
+    const updateFromPointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && isDockSnipNode(target)) return;
+      const image = target instanceof Element ? target.closest("img") : null;
+      if (image instanceof HTMLImageElement) {
+        showForImage(image);
+        return;
+      }
+
+      const currentImage = pageImageTarget.current;
+      if (!currentImage) return;
+      const rect = currentImage.getBoundingClientRect();
+      const isInsideCurrentImage =
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom;
+      if (isInsideCurrentImage) {
+        setPageImageAffordance((currentAffordance) =>
+          currentAffordance ? { ...currentAffordance, rect: elementRect(currentImage) } : currentAffordance
+        );
+        return;
+      }
+      pageImageTarget.current = null;
+      setPageImageAffordance(null);
+    };
+
+    const refreshPosition = () => {
+      const image = pageImageTarget.current;
+      if (!image || !image.isConnected || !isEligiblePageImage(image, image.currentSrc || image.src)) {
+        pageImageTarget.current = null;
+        setPageImageAffordance(null);
+        return;
+      }
+      setPageImageAffordance((currentAffordance) =>
+        currentAffordance ? { ...currentAffordance, rect: elementRect(image) } : currentAffordance
+      );
+    };
+
+    document.addEventListener("pointermove", updateFromPointer, true);
+    window.addEventListener("scroll", refreshPosition, true);
+    window.addEventListener("resize", refreshPosition);
+    return () => {
+      document.removeEventListener("pointermove", updateFromPointer, true);
+      window.removeEventListener("scroll", refreshPosition, true);
+      window.removeEventListener("resize", refreshPosition);
+    };
+  }, [captureMode, loaded]);
+
+  const importPageImage = async () => {
+    if (!pageImageAffordance || pageImageAffordance.status === "saving") return;
+    const addTarget = activeAddTarget;
+    setPageImageAffordance((currentAffordance) =>
+      currentAffordance ? { ...currentAffordance, status: "saving" } : currentAffordance
+    );
+    try {
+      const capture = await sendBackground<Capture>({
+        type: "JUSTSNAP_IMPORT_IMAGE_URL",
+        imageUrl: pageImageAffordance.imageUrl,
+        sourceUrl: window.location.href,
+        sourceOrigin: currentOrigin(),
+        pageTitle: document.title || currentOrigin()
+      });
+      const blob = capture.fullDataUrl ? dataUrlToBlob(capture.fullDataUrl) : undefined;
+      if (blob) setBlobCache((currentCache) => ({ ...currentCache, [capture.id]: blob }));
+      setRecentlyAddedCaptureId(capture.id);
+      if (addTarget) {
+        await addImportedCaptureToTarget(capture, addTarget);
+      } else {
+        await refreshLibrary();
+      }
+      setPageImageAffordance((currentAffordance) =>
+        currentAffordance ? { ...currentAffordance, status: "saved" } : currentAffordance
+      );
+      window.setTimeout(() => {
+        setPageImageAffordance((currentAffordance) =>
+          currentAffordance?.status === "saved" ? null : currentAffordance
+        );
+      }, 650);
+    } catch (importError) {
+      setError(errorText(importError));
+      setPageImageAffordance((currentAffordance) =>
+        currentAffordance ? { ...currentAffordance, status: "idle" } : currentAffordance
+      );
+    }
+  };
+
+  const addImportedCaptureToTarget = async (capture: Capture, addTarget: CaptureAddTarget) => {
+    setCaptures((currentCaptures) => [
+      { ...capture, groupId: addTarget.kind === "group" ? addTarget.id : undefined },
+      ...currentCaptures.filter((item) => item.id !== capture.id)
+    ]);
+    setPendingAddCaptureIds([]);
+
+    if (addTarget.kind === "group") {
+      setGroups((currentGroups) =>
+        currentGroups.map((group) =>
+          group.id === addTarget.id
+            ? { ...group, captureIds: [...group.captureIds.filter((id) => id !== capture.id), capture.id] }
+            : group
+        )
+      );
+      setRailOrder((currentOrder) => currentOrder.filter((item) => !(item.kind === "capture" && item.id === capture.id)));
+      await addEvent("capture_grouped", [capture.id], { groupId: addTarget.id, sourceOrigin: capture.sourceOrigin });
+      return;
+    }
+
+    const targetCapture = captures.find((item) => item.id === addTarget.id);
+    if (!targetCapture) {
+      await refreshLibrary();
+      return;
+    }
+    const group: CaptureGroup = {
+      id: crypto.randomUUID(),
+      name: "Added captures",
+      createdAt: Date.now(),
+      captureIds: [targetCapture.id, capture.id],
+      collapsed: false
+    };
+    setGroups((currentGroups) => [group, ...removeCapturesFromGroups(currentGroups, group.captureIds)]);
+    setCaptures((currentCaptures) =>
+      currentCaptures.map((item) =>
+        item.id === targetCapture.id || item.id === capture.id ? { ...item, groupId: group.id } : item
+      )
+    );
+    setActiveAddTarget({ kind: "group", id: group.id });
+    setRailOrder((currentOrder) => replaceCaptureWithGroupInOrder(currentOrder, capture.id, targetCapture.id, group.id));
+    await addEvent("group_created", group.captureIds, { groupId: group.id, sourceOrigin: capture.sourceOrigin });
+  };
+
   const orderedRailOrder = useMemo(
-    () => normalizeRailOrderForState(railOrder, captures, groups),
-    [captures, groups, railOrder]
+    () =>
+      normalizeRailOrderForState(railOrder, captures, groups).filter(
+        (item) => !(item.kind === "capture" && pendingAddCaptureIds.includes(item.id))
+      ),
+    [captures, groups, pendingAddCaptureIds, railOrder]
+  );
+  const pendingAddCaptures = useMemo(
+    () =>
+      pendingAddCaptureIds
+        .map((captureId) => captures.find((capture) => capture.id === captureId))
+        .filter((capture): capture is Capture => Boolean(capture)),
+    [captures, pendingAddCaptureIds]
   );
   const railLayout = dockLayoutForCount(
     orderedRailOrder.length + RAIL_CONTROL_ENTRY_COUNT,
@@ -546,6 +915,17 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
     "--justsnap-dock-base": `${railLayout.baseSize}px`,
     "--justsnap-dock-gap": `${railLayout.gap}px`
   } as React.CSSProperties;
+  const shortcutModifier = platformShortcutModifier();
+  const destinationLabel = activeAddTarget
+    ? activeAddTarget.kind === "group"
+      ? groups.find((group) => group.id === activeAddTarget.id)?.name ?? "folder"
+      : captures.find((capture) => capture.id === activeAddTarget.id)?.pageTitle ?? "image"
+    : null;
+  const toolbarTitle = destinationLabel ? `Adding to ${destinationLabel}` : "Add images to your dock";
+  const toolbarDescription = activeAddTarget
+    ? "Dock images or snip screenshots into this folder."
+    : "Dock page images or snip any area of the screen.";
+  const showDone = Boolean(activeAddTarget) || captureMode;
 
   return (
     <>
@@ -553,13 +933,17 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
       <aside
         className={[
           "justsnap-rail",
-          railInteractionActive ? "justsnap-rail-expanded" : "",
-          captureHidden ? "justsnap-hidden" : ""
+          railInteractionActive ? "justsnap-rail-expanded" : ""
         ].join(" ")}
         style={railStyle}
       >
         <div className="justsnap-rail-control-slot">
-          <button className="justsnap-rail-control" title="Capture" onClick={beginCapture}>
+          <button
+            className="justsnap-rail-control"
+            aria-label={`Capture ${shortcutModifier} ⇧ S`}
+            data-tooltip={`Capture ${shortcutModifier} ⇧ S`}
+            onClick={() => void activateSnipMode()}
+          >
             <Camera size={18} />
           </button>
         </div>
@@ -573,41 +957,119 @@ function JustSnapApp({ command }: { command?: ContentCommand }) {
           blobCache={blobCache}
           dragging={dragging}
           recentlyAddedCaptureId={recentlyAddedCaptureId}
+          activeAddTarget={activeAddTarget ?? captureSession?.addTarget}
+          pendingAddCaptures={pendingAddCaptures}
           layout={railLayout}
           onStartDrag={startItemDrag}
           onEndDrag={finishItemDrag}
           onDropIntent={applyRailDropIntent}
           onRemoveGroup={removeGroup}
           onRemoveCapture={removeCapture}
+          onAddToGroup={(groupId) => void startAddMode({ kind: "group", id: groupId })}
+          onAddToCapture={(captureId) => void startAddMode({ kind: "capture", id: captureId })}
           onInteractionChange={setRailInteractionActive}
         />
         <div className="justsnap-rail-separator-slot">
           <div className="justsnap-rail-separator" />
         </div>
         <div className="justsnap-rail-control-slot justsnap-settings-control-hidden">
-          <button className="justsnap-rail-control" title="Customize shortcuts" onClick={openShortcutSettings}>
+          <button
+            className="justsnap-rail-control"
+            aria-label="Customize shortcuts"
+            data-tooltip="Customize shortcuts"
+            onClick={openShortcutSettings}
+          >
             <Settings size={18} />
             {error && <span className="justsnap-control-badge" aria-label={error} />}
           </button>
         </div>
         <div className="justsnap-rail-control-slot">
-          <button className="justsnap-rail-control" title="Close JustSnap" onClick={closeRail}>
+          <button
+            className="justsnap-rail-control"
+            aria-label={`Close ${shortcutModifier} ⇧ X`}
+            data-tooltip={`Close ${shortcutModifier} ⇧ X`}
+            onClick={closeRail}
+          >
             <X size={19} />
           </button>
         </div>
       </aside>
 
+      {pageImageAffordance && !captureMode && (
+        <button
+          className={[
+            "justsnap-page-image-add",
+            pageImageAffordance.status === "saving" ? "justsnap-page-image-add-saving" : "",
+            pageImageAffordance.status === "saved" ? "justsnap-page-image-add-saved" : ""
+          ].join(" ")}
+          style={pageImageAffordanceStyle(pageImageAffordance.rect)}
+          aria-label={activeAddTarget ? "Add image to stack" : "Dock image"}
+          data-tooltip={activeAddTarget ? "Add to stack" : "Dock image"}
+          disabled={pageImageAffordance.status === "saving"}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void importPageImage();
+          }}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+        >
+          {pageImageAffordance.status === "saved" ? <Check size={17} /> : <Camera size={17} />}
+        </button>
+      )}
+
+      {!captureMode && (
+        <div className="justsnap-capture-toolbar" onPointerDown={(event) => event.stopPropagation()}>
+          <span className="justsnap-capture-toolbar-copy">
+            <strong>{toolbarTitle}</strong>
+            <small>{toolbarDescription}</small>
+          </span>
+          <div className="justsnap-capture-modes" role="group" aria-label="Image input mode">
+            <button className="justsnap-capture-mode-active" aria-pressed="true" onClick={() => void activateDockMode()}>
+              Dock it
+            </button>
+            <button aria-pressed="false" onClick={() => void activateSnipMode()}>
+              Snip it
+            </button>
+          </div>
+          {showDone && (
+            <button className="justsnap-capture-done" title="Done (Enter)" onClick={() => void finishDestination()}>
+              <span>Done</span>
+              <CornerDownLeft size={13} />
+            </button>
+          )}
+        </div>
+      )}
+
       {captureMode && (
         <div
-          className="justsnap-capture-layer"
+          className={["justsnap-capture-layer", captureHidden ? "justsnap-hidden" : ""].join(" ")}
           onPointerDown={beginSelection}
           onPointerMove={updateSelection}
           onPointerUp={finishSelection}
         >
           <div className="justsnap-capture-toolbar" onPointerDown={(event) => event.stopPropagation()}>
-            <span>Drag to capture an area</span>
-            <button title="Cancel capture" onClick={cancelCapture}>
-              <X size={16} />
+            <span className="justsnap-capture-toolbar-copy">
+              <strong>{toolbarTitle}</strong>
+              <small>{toolbarDescription}</small>
+            </span>
+            <div className="justsnap-capture-modes" role="group" aria-label="Image input mode">
+              <button aria-pressed="false" onClick={() => void activateDockMode()}>
+                Dock it
+              </button>
+              <button className="justsnap-capture-mode-active" aria-pressed="true" onClick={() => void activateSnipMode()}>
+                Snip it
+              </button>
+            </div>
+            <button
+              className="justsnap-capture-done"
+              title="Done (Enter)"
+              onClick={() => void (activeAddTarget ? finishDestination() : activateDockMode())}
+            >
+              <span>Done</span>
+              <CornerDownLeft size={13} />
             </button>
           </div>
           {activeRect && <div className="justsnap-selection" style={rectStyle(activeRect)} />}
@@ -621,6 +1083,45 @@ function dragToRailItem(drag: InternalDrag): RailOrderItem | undefined {
   if (drag.kind === "capture") return { kind: "capture", id: drag.captureId };
   if (drag.kind === "group") return { kind: "group", id: drag.groupId };
   return undefined;
+}
+
+function platformShortcutModifier(): "⌘" | "Ctrl" {
+  const userAgentData = navigator as Navigator & { userAgentData?: { platform?: string } };
+  const platform = userAgentData.userAgentData?.platform ?? navigator.platform ?? navigator.userAgent ?? "";
+  return /mac|iphone|ipad|ipod/i.test(platform) ? "⌘" : "Ctrl";
+}
+
+function sameAddTarget(a?: CaptureAddTarget, b?: CaptureAddTarget): boolean {
+  if (!a && !b) return true;
+  return Boolean(a && b && a.kind === b.kind && a.id === b.id);
+}
+
+function isEligiblePageImage(image: HTMLImageElement, imageUrl: string): boolean {
+  if (!imageUrl || isDockSnipNode(image)) return false;
+  if (!/^(https?:|data:image\/)/i.test(imageUrl)) return false;
+  const rect = image.getBoundingClientRect();
+  if (rect.width < 140 || rect.height < 100) return false;
+  if (rect.bottom < 0 || rect.right < 0 || rect.top > window.innerHeight || rect.left > window.innerWidth) return false;
+  const style = window.getComputedStyle(image);
+  if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0) return false;
+  return true;
+}
+
+function elementRect(element: Element): Rect {
+  const rect = element.getBoundingClientRect();
+  return {
+    left: rect.left,
+    top: rect.top,
+    width: rect.width,
+    height: rect.height
+  };
+}
+
+function pageImageAffordanceStyle(rect: Rect): React.CSSProperties {
+  return {
+    left: rect.left + rect.width / 2,
+    top: rect.top + rect.height / 2
+  };
 }
 
 function normalizeRailOrderForState(order: RailOrderItem[], captures: Capture[], groups: CaptureGroup[]): RailOrderItem[] {
@@ -709,21 +1210,6 @@ function replaceCaptureWithGroupInOrder(
   return inserted ? next : prependRailItem(next, { kind: "group", id: groupId });
 }
 
-function replaceGroupWithCapturesInOrder(order: RailOrderItem[], groupId: string, captureIds: string[]): RailOrderItem[] {
-  const replacements = captureIds.map((id) => ({ kind: "capture" as const, id }));
-  const next: RailOrderItem[] = [];
-  let inserted = false;
-  for (const item of order) {
-    if (item.kind === "group" && item.id === groupId) {
-      next.push(...replacements);
-      inserted = true;
-      continue;
-    }
-    next.push(item);
-  }
-  return inserted ? next : [...replacements, ...next];
-}
-
 function removeCapturesFromGroups(groups: CaptureGroup[], captureIdsToRemove: string[]): CaptureGroup[] {
   const removeSet = new Set(captureIdsToRemove);
   return groups
@@ -766,7 +1252,7 @@ function ActivityView({ events, captures, groups }: { events: ActivityEvent[]; c
     return (
       <div className="justsnap-empty">
         <ListChecks size={22} />
-        <span>Workflow activity will appear here.</span>
+        <span>Dock activity will appear here.</span>
       </div>
     );
   }
@@ -797,8 +1283,11 @@ function installDestinationDetector() {
   document.addEventListener("drop", () => report("drop"), true);
 }
 
-function isJustSnapNode(node: Node): boolean {
-  return Boolean(host && (node === host || host.contains(node)));
+function isDockSnipNode(node: Node): boolean {
+  if (!host) return false;
+  if (node === host || host.contains(node)) return true;
+  const rootNode = node.getRootNode();
+  return rootNode instanceof ShadowRoot && rootNode.host === host;
 }
 
 function elementAtPoint(point: Point): Element | undefined {
@@ -811,64 +1300,18 @@ function elementAtPoint(point: Point): Element | undefined {
 
 async function sendBackground<T = unknown>(request: BackgroundRequest): Promise<T> {
   const response = await chrome.runtime.sendMessage<BackgroundRequest, BackgroundResponse<T>>(request);
-  if (!response?.ok) throw new Error(response?.error ?? "JustSnap request failed.");
+  if (!response?.ok) throw new Error(response?.error ?? "DockSnip request failed.");
   return response.data;
 }
 
-async function cropImage(image: CaptureImage, rect: Rect): Promise<CaptureImage> {
+function viewportMetrics() {
   const viewport = window.visualViewport;
-  const viewportWidth = viewport?.width ?? window.innerWidth;
-  const viewportHeight = viewport?.height ?? window.innerHeight;
-  const viewportLeft = viewport?.offsetLeft ?? 0;
-  const viewportTop = viewport?.offsetTop ?? 0;
-  const scaleX = image.width / viewportWidth;
-  const scaleY = image.height / viewportHeight;
-  const scale = Math.min(scaleX, scaleY);
-  const sourceX = Math.max(0, Math.round((rect.left + viewportLeft) * scale));
-  const sourceY = Math.max(0, Math.round((rect.top + viewportTop) * scale));
-  const sourceWidth = Math.min(image.width - sourceX, Math.round(rect.width * scale));
-  const sourceHeight = Math.min(image.height - sourceY, Math.round(rect.height * scale));
-  return drawToDataUrl(image.dataUrl, sourceWidth, sourceHeight, 0.92, {
-    sourceX,
-    sourceY,
-    sourceWidth,
-    sourceHeight
-  });
-}
-
-async function resizeImage(dataUrl: string, maxSide: number, quality: number): Promise<CaptureImage> {
-  const image = await loadImage(dataUrl);
-  const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
-  return drawToDataUrl(dataUrl, Math.round(image.width * scale), Math.round(image.height * scale), quality);
-}
-
-async function drawToDataUrl(
-  dataUrl: string,
-  width: number,
-  height: number,
-  quality: number,
-  crop?: { sourceX: number; sourceY: number; sourceWidth: number; sourceHeight: number }
-): Promise<CaptureImage> {
-  const image = new window.Image();
-  image.src = dataUrl;
-  await image.decode();
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Could not prepare screenshot canvas.");
-  context.drawImage(
-    image,
-    crop?.sourceX ?? 0,
-    crop?.sourceY ?? 0,
-    crop?.sourceWidth ?? image.naturalWidth,
-    crop?.sourceHeight ?? image.naturalHeight,
-    0,
-    0,
-    width,
-    height
-  );
-  return { dataUrl: canvas.toDataURL("image/png", quality), width, height };
+  return {
+    width: viewport?.width ?? window.innerWidth,
+    height: viewport?.height ?? window.innerHeight,
+    offsetLeft: viewport?.offsetLeft ?? 0,
+    offsetTop: viewport?.offsetTop ?? 0
+  };
 }
 
 function normalizeRect(start: Point, end: Point): Rect {
@@ -904,13 +1347,13 @@ function sourceOriginFor(captureIds: string[], captures: Capture[]): string | un
 
 function captureLabel(captureId: string, captures: Capture[]): string {
   const capture = captures.find((item) => item.id === captureId);
-  return capture ? `${capture.pageTitle} - ${capture.sourceOrigin}` : "JustSnap capture";
+  return capture ? `${capture.pageTitle} - ${capture.sourceOrigin}` : "DockSnip capture";
 }
 
 function eventLabel(event: ActivityEvent, groups: CaptureGroup[]): string {
   const labels: Record<ActivityEvent["type"], string> = {
-    rail_opened: "Rail opened",
-    capture_started: "Capture started",
+    rail_opened: "Dock opened",
+    capture_started: "Snip started",
     capture_created: "Capture created",
     group_created: "Group created",
     group_renamed: "Group renamed",
@@ -925,7 +1368,7 @@ function eventLabel(event: ActivityEvent, groups: CaptureGroup[]): string {
     group_downloaded: "Group downloaded",
     capture_drag_started: "Capture drag started",
     group_drag_started: "Group drag started",
-    rail_reordered: "Rail reordered",
+    rail_reordered: "Dock reordered",
     folder_reordered: "Folder reordered",
     browser_paste_detected: "Browser paste detected",
     browser_drop_detected: "Browser drop detected",

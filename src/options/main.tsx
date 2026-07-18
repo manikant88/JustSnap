@@ -10,15 +10,15 @@ function OptionsApp() {
   useEffect(() => {
     sendBackground<LibraryState>({ type: "JUSTSNAP_GET_LIBRARY" })
       .then(setLibrary)
-      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Could not load JustSnap data."));
+      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Could not load DockSnip data."));
   }, []);
 
   return (
     <main>
       <section>
-        <h1>JustSnap</h1>
+        <h1>DockSnip</h1>
         <p>
-          JustSnap stores screenshots and workflow activity locally in this Chrome profile. Research export data is
+          DockSnip stores screenshots, docked images, and workflow activity locally in this Chrome profile. Export data is
           metadata-only and does not include raw screenshot pixels.
         </p>
         {library && (
@@ -45,7 +45,7 @@ function OptionsApp() {
 
 async function sendBackground<T = unknown>(request: BackgroundRequest): Promise<T> {
   const response = await chrome.runtime.sendMessage<BackgroundRequest, BackgroundResponse<T>>(request);
-  if (!response?.ok) throw new Error(response?.error ?? "JustSnap request failed.");
+  if (!response?.ok) throw new Error(response?.error ?? "DockSnip request failed.");
   return response.data;
 }
 

@@ -2,7 +2,7 @@ import type { Capture } from "../../../shared/types";
 
 export type PageInsertEnvironment = {
   currentOrigin: () => string;
-  isJustSnapNode: (node: Node) => boolean;
+  isDockSnipNode: (node: Node) => boolean;
 };
 
 export async function placeFilesInCurrentPage(
@@ -82,19 +82,19 @@ function isWhatsAppOrigin(origin: string): boolean {
 }
 
 function resolveInsertTarget(env: PageInsertEnvironment, target: Element | undefined): HTMLElement | undefined {
-  if (!target || env.isJustSnapNode(target)) return undefined;
+  if (!target || env.isDockSnipNode(target)) return undefined;
   if (target instanceof HTMLElement && isEditableTarget(target)) return target;
   const closestEditable = target.closest<HTMLElement>(
     '[contenteditable="true"], textarea, input, [role="textbox"], canvas, [data-testid*="canvas"], [class*="canvas"]'
   );
-  if (closestEditable && !env.isJustSnapNode(closestEditable) && isVisibleElement(closestEditable)) return closestEditable;
+  if (closestEditable && !env.isDockSnipNode(closestEditable) && isVisibleElement(closestEditable)) return closestEditable;
   if (target instanceof HTMLElement && isVisibleElement(target)) return target;
   return undefined;
 }
 
 function findAttachmentInput(env: PageInsertEnvironment, nearTarget?: Element): HTMLInputElement | undefined {
   const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]'));
-  const pageInputs = inputs.filter((input) => !env.isJustSnapNode(input));
+  const pageInputs = inputs.filter((input) => !env.isDockSnipNode(input));
   const nearForm = nearTarget?.closest("form");
   const nearbyInputs =
     nearForm instanceof HTMLFormElement
@@ -124,7 +124,7 @@ function assignFilesToInput(input: HTMLInputElement, files: File[]): boolean {
 
 function findPageInsertTarget(env: PageInsertEnvironment): HTMLElement | undefined {
   const active = document.activeElement;
-  if (active instanceof HTMLElement && !env.isJustSnapNode(active) && isEditableTarget(active)) return active;
+  if (active instanceof HTMLElement && !env.isDockSnipNode(active) && isEditableTarget(active)) return active;
 
   const selectors = [
     'footer [contenteditable="true"][role="textbox"]',
@@ -136,7 +136,7 @@ function findPageInsertTarget(env: PageInsertEnvironment): HTMLElement | undefin
   ];
   for (const selector of selectors) {
     const match = Array.from(document.querySelectorAll<HTMLElement>(selector)).find(
-      (element) => !env.isJustSnapNode(element) && isVisibleElement(element)
+      (element) => !env.isDockSnipNode(element) && isVisibleElement(element)
     );
     if (match) return match;
   }
@@ -185,7 +185,7 @@ async function withInsertionSignal(
 ): Promise<boolean> {
   let changed = false;
   const observer = new MutationObserver((records) => {
-    if (records.some((record) => !env.isJustSnapNode(record.target))) changed = true;
+    if (records.some((record) => !env.isDockSnipNode(record.target))) changed = true;
   });
   observer.observe(document.body, {
     attributes: true,

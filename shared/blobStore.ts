@@ -37,7 +37,7 @@ function openDb(): Promise<IDBDatabase> {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME);
     };
-    request.onerror = () => reject(request.error ?? new Error("Could not open JustSnap image store."));
+    request.onerror = () => reject(request.error ?? new Error("Could not open DockSnip image store."));
     request.onsuccess = () => resolve(request.result);
   });
 }
@@ -50,7 +50,7 @@ function runStoreRequest<T>(
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(STORE_NAME, mode);
     const request = operation(transaction.objectStore(STORE_NAME));
-    request.onerror = () => reject(request.error ?? new Error("JustSnap image store request failed."));
+    request.onerror = () => reject(request.error ?? new Error("DockSnip image store request failed."));
     request.onsuccess = () => resolve(request.result);
   });
 }

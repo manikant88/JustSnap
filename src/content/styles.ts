@@ -33,6 +33,7 @@ export const styles = `
     translate: 0 -50%;
     backdrop-filter: blur(26px) saturate(190%) brightness(1.08);
     -webkit-backdrop-filter: blur(26px) saturate(190%) brightness(1.08);
+    pointer-events: none;
   }
   .justsnap-rail-expanded {
     max-height: none;
@@ -70,7 +71,7 @@ export const styles = `
     align-items: center;
     justify-content: center;
     padding: 0 7px;
-    pointer-events: auto;
+    pointer-events: none;
   }
   .justsnap-rail-control {
     position: relative;
@@ -87,6 +88,42 @@ export const styles = `
     cursor: pointer;
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0);
     transition: background 120ms ease, color 120ms ease, scale 120ms ease, box-shadow 120ms ease;
+    pointer-events: auto;
+  }
+  .justsnap-rail-control::before,
+  .justsnap-rail-control::after {
+    position: absolute;
+    top: 50%;
+    translate: 0 -50%;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 90ms ease, translate 90ms ease;
+  }
+  .justsnap-rail-control::before {
+    content: attr(data-tooltip);
+    right: calc(100% + 11px);
+    z-index: 20;
+    max-width: 220px;
+    padding: 8px 10px;
+    border-radius: 7px;
+    color: #fff;
+    background: rgba(17, 17, 17, 0.96);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.12;
+    letter-spacing: 0;
+    white-space: nowrap;
+  }
+  .justsnap-rail-control::after {
+    content: "";
+    right: calc(100% + 4px);
+    z-index: 21;
+    width: 0;
+    height: 0;
+    border-top: 7px solid transparent;
+    border-bottom: 7px solid transparent;
+    border-left: 7px solid rgba(17, 17, 17, 0.96);
   }
   .justsnap-rail-control svg {
     width: min(20px, max(13px, calc(var(--justsnap-dock-base, 52px) * 0.42)));
@@ -105,8 +142,108 @@ export const styles = `
     outline: none;
     scale: 1.06;
   }
+  .justsnap-rail-control:hover::before,
+  .justsnap-rail-control:hover::after,
+  .justsnap-rail-control:focus-visible::before,
+  .justsnap-rail-control:focus-visible::after {
+    opacity: 1;
+    translate: -4px -50%;
+  }
   .justsnap-rail-control:disabled { opacity: 0.45; cursor: not-allowed; }
   .justsnap-settings-control-hidden { display: none; }
+  .justsnap-page-image-add {
+    position: fixed;
+    z-index: 2147483645;
+    width: 42px;
+    height: 42px;
+    border: 1px solid rgba(255, 255, 255, 0.38);
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(248, 250, 252, 0.96);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.05)),
+      rgba(15, 23, 42, 0.76);
+    box-shadow:
+      0 12px 28px rgba(3, 7, 18, 0.26),
+      0 0 0 3px rgba(14, 165, 233, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.24);
+    cursor: pointer;
+    translate: -50% -50%;
+    backdrop-filter: blur(12px) saturate(150%);
+    -webkit-backdrop-filter: blur(12px) saturate(150%);
+    transition: background 120ms ease, color 120ms ease, scale 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+  }
+  .justsnap-page-image-add::before,
+  .justsnap-page-image-add::after {
+    position: absolute;
+    top: 50%;
+    translate: 0 -50%;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 90ms ease, translate 90ms ease;
+  }
+  .justsnap-page-image-add::before {
+    content: attr(data-tooltip);
+    right: calc(100% + 11px);
+    padding: 8px 10px;
+    border-radius: 7px;
+    color: #fff;
+    background: rgba(17, 17, 17, 0.96);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 1.12;
+    white-space: nowrap;
+  }
+  .justsnap-page-image-add::after {
+    content: "";
+    right: calc(100% + 4px);
+    width: 0;
+    height: 0;
+    border-top: 7px solid transparent;
+    border-bottom: 7px solid transparent;
+    border-left: 7px solid rgba(17, 17, 17, 0.96);
+  }
+  .justsnap-page-image-add:hover,
+  .justsnap-page-image-add:focus-visible {
+    color: #fff;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.08)),
+      rgba(14, 165, 233, 0.78);
+    box-shadow:
+      0 14px 32px rgba(3, 7, 18, 0.3),
+      0 0 0 4px rgba(14, 165, 233, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.32);
+    outline: none;
+    scale: 1.06;
+  }
+  .justsnap-page-image-add:hover::before,
+  .justsnap-page-image-add:hover::after,
+  .justsnap-page-image-add:focus-visible::before,
+  .justsnap-page-image-add:focus-visible::after {
+    opacity: 1;
+    translate: -4px -50%;
+  }
+  .justsnap-page-image-add-saving {
+    opacity: 0.72;
+    cursor: wait;
+  }
+  .justsnap-page-image-add-saved {
+    color: #fff;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.06)),
+      rgba(34, 197, 94, 0.82);
+    box-shadow:
+      0 12px 28px rgba(3, 7, 18, 0.24),
+      0 0 0 4px rgba(34, 197, 94, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.26);
+  }
+  .justsnap-page-image-add svg {
+    width: 18px;
+    height: 18px;
+  }
   .justsnap-rail-separator-slot {
     position: relative;
     z-index: 10;
@@ -163,7 +300,7 @@ export const styles = `
     padding: 0 9px 0 0;
     background: transparent;
     outline: none;
-    pointer-events: auto;
+    pointer-events: none;
   }
   .justsnap-activity {
     flex: 1;
@@ -178,6 +315,7 @@ export const styles = `
     flex: 0 0 auto;
     transition: width 120ms ease-out, height 120ms ease-out;
     overflow: visible;
+    pointer-events: none;
   }
   .justsnap-dock-slot::before,
   .justsnap-dock-slot::after {
@@ -217,6 +355,7 @@ export const styles = `
     translate: 0 calc(-50% + var(--justsnap-preview-offset-y, 0px));
     transition: width 120ms ease-out, height 120ms ease-out, border-color 150ms ease, box-shadow 150ms ease;
     will-change: width, height;
+    pointer-events: auto;
   }
   .justsnap-dock-image-new {
     animation: justsnap-capture-added 520ms cubic-bezier(0.18, 0.9, 0.22, 1.18);
@@ -286,12 +425,17 @@ export const styles = `
     translate: 0 -50%;
     transition: width 120ms ease-out, height 120ms ease-out, border-color 150ms ease, box-shadow 150ms ease;
     will-change: width, height;
+    pointer-events: auto;
   }
   .justsnap-dock-folder-button:hover,
   .justsnap-dock-folder-button:focus-visible {
     border-color: #0ea5e9 !important;
     box-shadow: 0 10px 24px rgba(15, 32, 48, 0.24), inset 0 0 0 1px rgba(148, 163, 184, 0.32);
     z-index: 2;
+  }
+  .justsnap-dock-add-target-folder {
+    border-color: #0ea5e9 !important;
+    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.22), 0 10px 24px rgba(15, 32, 48, 0.24), inset 0 0 0 1px rgba(148, 163, 184, 0.32) !important;
   }
   .justsnap-dock-folder-button:active { cursor: grabbing; }
   .justsnap-folder-grid {
@@ -312,23 +456,44 @@ export const styles = `
     display: block;
     background: #fff;
   }
-  .justsnap-folder-count {
+  .justsnap-dock-add {
+    --justsnap-add-size: clamp(18px, calc(var(--justsnap-dock-base, 52px) * 0.38), 22px);
+    --justsnap-add-inset: max(5px, calc(var(--justsnap-dock-base, 52px) * 0.1));
     position: absolute;
-    right: 5px;
-    bottom: 5px;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
+    top: calc(50% + var(--justsnap-add-offset-y, 0px) + var(--justsnap-add-item-half, 26px) - var(--justsnap-add-size) - var(--justsnap-add-inset));
+    right: var(--justsnap-add-inset);
+    z-index: 4;
+    width: var(--justsnap-add-size);
+    min-width: var(--justsnap-add-size);
+    height: var(--justsnap-add-size);
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.34);
     border-radius: 999px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     color: #fff;
-    background: rgba(15, 23, 42, 0.78);
-    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.24);
-    font-size: 10px;
-    font-weight: 800;
-    line-height: 1;
+    background: rgba(15, 23, 42, 0.82);
+    box-shadow: 0 5px 14px rgba(15, 23, 42, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    line-height: 0;
+    cursor: pointer;
+    backdrop-filter: blur(8px) saturate(140%);
+    -webkit-backdrop-filter: blur(8px) saturate(140%);
+    transition: background 120ms ease, scale 120ms ease, color 120ms ease;
+    pointer-events: auto;
+  }
+  .justsnap-dock-add:hover,
+  .justsnap-dock-add:focus-visible {
+    color: #0f172a;
+    background: rgba(255,255,255,0.95);
+    outline: none;
+    scale: 1.08;
+  }
+  .justsnap-dock-add svg {
+    display: block;
+    flex: 0 0 auto;
+    width: 13px;
+    height: 13px;
   }
   .justsnap-dock-image-button img {
     width: 100%;
@@ -356,6 +521,7 @@ export const styles = `
     box-shadow: 0 6px 14px rgba(15, 32, 48, 0.18);
     cursor: pointer;
     line-height: 0;
+    pointer-events: auto;
   }
   .justsnap-dock-remove:hover {
     color: #b42318;
@@ -381,6 +547,7 @@ export const styles = `
     overflow: visible;
     background: transparent;
     translate: 0 -50%;
+    pointer-events: none;
   }
   .justsnap-group-flyout::before {
     content: "";
@@ -421,25 +588,83 @@ export const styles = `
     top: 14px;
     left: 50%;
     translate: -50% 0;
-    min-height: 42px;
-    padding: 6px 8px 6px 14px;
+    min-height: 48px;
+    padding: 7px 8px 7px 16px;
     border: 1px solid rgba(255,255,255,0.22);
-    border-radius: 8px;
+    border-radius: 10px;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     color: #fff;
     background: rgba(15, 23, 42, 0.9);
     box-shadow: 0 14px 30px rgba(0,0,0,0.24);
+    z-index: 2147483647;
+  }
+  .justsnap-capture-toolbar-copy {
+    display: grid;
+    gap: 1px;
+    line-height: 1.15;
+    max-width: min(320px, 34vw);
+  }
+  .justsnap-capture-toolbar-copy strong {
+    font-size: 14px;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .justsnap-capture-toolbar-copy small {
+    color: rgba(255,255,255,0.72);
+    font-size: 11.5px;
+    font-weight: 500;
   }
   .justsnap-capture-toolbar button {
-    width: 30px;
-    height: 30px;
+    min-width: 34px;
+    height: 34px;
+    padding: 0 10px;
     border: 1px solid rgba(255,255,255,0.18);
-    border-radius: 7px;
+    border-radius: 9px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
     color: #fff;
     background: rgba(255,255,255,0.08);
     cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .justsnap-capture-modes {
+    padding: 3px;
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 11px;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    background: rgba(2, 6, 23, 0.34);
+  }
+  .justsnap-capture-toolbar .justsnap-capture-modes button {
+    height: 30px;
+    border: 0;
+    border-radius: 8px;
+    color: rgba(255,255,255,0.72);
+    background: transparent;
+  }
+  .justsnap-capture-toolbar .justsnap-capture-modes .justsnap-capture-mode-active {
+    color: #fff;
+    background: rgba(14, 165, 233, 0.34);
+    box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.32);
+  }
+  .justsnap-capture-toolbar .justsnap-capture-done {
+    background: rgba(14, 165, 233, 0.28);
+    border-color: rgba(125, 211, 252, 0.46);
+  }
+  .justsnap-capture-toolbar .justsnap-capture-escape {
+    padding: 0 9px;
+    color: rgba(255,255,255,0.86);
+    background: rgba(255,255,255,0.06);
   }
   .justsnap-selection {
     position: fixed;

@@ -23,3 +23,10 @@ await build({
   outfile: "dist/background.js",
   format: "esm"
 });
+
+await build({
+  ...common,
+  entryPoints: ["src/offscreen.ts"],
+  outfile: "dist/offscreen.js",
+  format: "esm"
+});

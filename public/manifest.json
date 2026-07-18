@@ -1,18 +1,18 @@
 {
   "manifest_version": 3,
-  "name": "JustSnap",
+  "name": "DockSnip",
   "version": "0.1.1",
-  "description": "Capture webpage snippets, organize them in a side rail, and learn local screenshot workflows.",
+  "description": "Snip it. Dock it. Drop it. Capture screenshots, dock page images, and drop them anywhere without cluttering downloads.",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "permissions": ["activeTab", "storage", "scripting", "clipboardWrite", "unlimitedStorage"],
-  "host_permissions": ["http://*/*", "https://*/*"],
+  "permissions": ["activeTab", "storage", "scripting", "clipboardWrite", "unlimitedStorage", "offscreen"],
+  "host_permissions": ["<all_urls>"],
   "action": {
-    "default_title": "Open JustSnap",
+    "default_title": "Open DockSnip",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
@@ -26,21 +26,21 @@
         "default": "Ctrl+Shift+E",
         "mac": "Command+Shift+E"
       },
-      "description": "Open JustSnap"
+      "description": "Open DockSnip"
     },
     "start-capture": {
       "suggested_key": {
         "default": "Ctrl+Shift+S",
         "mac": "Command+Shift+S"
       },
-      "description": "Start a JustSnap capture"
+      "description": "Start a DockSnip capture"
     },
     "close-justsnap": {
       "suggested_key": {
         "default": "Ctrl+Shift+X",
         "mac": "Command+Shift+X"
       },
-      "description": "Close JustSnap"
+      "description": "Close DockSnip"
     }
   },
   "background": {

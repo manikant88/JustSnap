@@ -24,6 +24,8 @@ export type RailOrderItem =
   | { kind: "capture"; id: string }
   | { kind: "group"; id: string };
 
+export type DockOrderItem = RailOrderItem;
+
 export type ActivityEventType =
   | "rail_opened"
   | "capture_started"
@@ -84,11 +86,60 @@ export type CaptureImage = {
   height: number;
 };
 
+export type CaptureSelectionRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+export type CaptureViewport = {
+  width: number;
+  height: number;
+  offsetLeft: number;
+  offsetTop: number;
+};
+
+export type CaptureAddTarget =
+  | { kind: "capture"; id: string }
+  | { kind: "group"; id: string };
+
+export type CaptureSessionSnapshot = {
+  sessionId: string;
+  captureCount: number;
+  captureIds: string[];
+  addTarget?: CaptureAddTarget;
+};
+
+export type CaptureSelectionResult = {
+  capture: Capture;
+  session: CaptureSessionSnapshot | null;
+};
+
 export type BackgroundRequest =
   | { type: "JUSTSNAP_TOGGLE_RAIL" }
   | { type: "JUSTSNAP_CLOSE_RAIL_GLOBAL" }
   | { type: "JUSTSNAP_OPEN_SHORTCUT_SETTINGS" }
-  | { type: "JUSTSNAP_CAPTURE_VISIBLE" }
+  | { type: "JUSTSNAP_START_CAPTURE_ACTIVE"; addTarget?: CaptureAddTarget }
+  | { type: "JUSTSNAP_PREPARE_CAPTURE_SESSION"; addTarget?: CaptureAddTarget }
+  | {
+      type: "JUSTSNAP_IMPORT_IMAGE_URL";
+      imageUrl: string;
+      sourceUrl: string;
+      sourceOrigin: string;
+      pageTitle: string;
+    }
+  | {
+      type: "JUSTSNAP_CAPTURE_SELECTION";
+      sessionId?: string;
+      rect: CaptureSelectionRect;
+      viewport: CaptureViewport;
+      sourceUrl: string;
+      sourceOrigin: string;
+      pageTitle: string;
+    }
+  | { type: "JUSTSNAP_FINISH_CAPTURE_SESSION"; sessionId: string }
+  | { type: "JUSTSNAP_CANCEL_CAPTURE_SESSION"; sessionId: string }
   | { type: "JUSTSNAP_GET_LIBRARY" }
   | { type: "JUSTSNAP_SAVE_LIBRARY"; library: Pick<LibraryState, "captures" | "groups" | "railOrder" | "events"> }
   | { type: "JUSTSNAP_APPEND_EVENT"; event: ActivityEvent }
@@ -101,6 +152,6 @@ export type BackgroundResponse<T = unknown> =
 
 export type ContentMessage =
   | { type: "JUSTSNAP_SHOW_RAIL" }
-  | { type: "JUSTSNAP_START_CAPTURE" }
+  | ({ type: "JUSTSNAP_START_CAPTURE" } & CaptureSessionSnapshot)
   | { type: "JUSTSNAP_CLOSE_RAIL" }
   | { type: "JUSTSNAP_CAPTURE_ERROR"; error: string };
