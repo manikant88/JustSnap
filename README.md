@@ -16,6 +16,5 @@ Load the extension from `dist` in `chrome://extensions` with Developer mode enab
 ## MVP Notes
 
 - Screenshots and docked images are stored locally for user utility.
-- Research export contains metadata and activity events only, not raw screenshot image data.
-- Browser paste/drop destinations are detected only on pages where the content script can run.
-- Native app destinations remain unknown.
+- DockSnip does not record page URLs, paste/drop destinations, or activity history.
+- Full-resolution images are stored once in the browser's local image database; dock thumbnails are lightweight display assets.

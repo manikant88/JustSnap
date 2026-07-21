@@ -3,6 +3,7 @@ import type { CaptureImage } from "./types";
 const DB_NAME = "justsnap-images";
 const STORE_NAME = "images";
 const DB_VERSION = 1;
+let databasePromise: Promise<IDBDatabase> | undefined;
 
 export async function saveImageBlob(key: string, blob: Blob): Promise<void> {
   const db = await openDb();
@@ -19,27 +20,40 @@ export async function deleteImageBlob(key: string): Promise<void> {
   await runStoreRequest(db, "readwrite", (store) => store.delete(key));
 }
 
+export async function listImageBlobKeys(): Promise<string[]> {
+  const db = await openDb();
+  return runStoreRequest<IDBValidKey[]>(db, "readonly", (store) => store.getAllKeys()).then((keys) =>
+    keys.filter((key): key is string => typeof key === "string")
+  );
+}
+
 export async function captureImageToBlob(image: CaptureImage, type = "image/png"): Promise<Blob> {
   const response = await fetch(image.dataUrl);
   const blob = await response.blob();
-  if (blob.type === type || type === "image/jpeg") return blob;
   return blob;
 }
 
-export function blobToObjectUrl(blob: Blob): string {
-  return URL.createObjectURL(blob);
-}
-
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (databasePromise) return databasePromise;
+  databasePromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME);
     };
-    request.onerror = () => reject(request.error ?? new Error("Could not open DockSnip image store."));
-    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => {
+      databasePromise = undefined;
+      reject(request.error ?? new Error("Could not open DockSnip image store."));
+    };
+    request.onsuccess = () => {
+      request.result.onversionchange = () => {
+        request.result.close();
+        databasePromise = undefined;
+      };
+      resolve(request.result);
+    };
   });
+  return databasePromise;
 }
 
 function runStoreRequest<T>(

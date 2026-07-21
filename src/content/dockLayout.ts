@@ -17,7 +17,7 @@ export function dockLayoutForCount(count: number, maxHeight = railLibraryHeight(
   const preferredSize = 52;
   const minSize = 28;
   const minCompressedSize = 8;
-  const preferredGap = 15;
+  const preferredGap = 8;
   const minGap = 4;
   if (count <= 0) return withDockSurfaceWidth({ baseSize: preferredSize, gap: preferredGap });
 
@@ -90,9 +90,8 @@ export function dockCapturePreviewFrame(
 }
 
 export function dockItemGap(baseGap: number, baseSize: number, influence: number): number {
-  const minimumGap = Math.max(2, Math.min(baseGap, baseSize * 0.08));
   const hoverGap = Math.max(baseGap, baseSize * 0.42);
-  return minimumGap + (hoverGap - minimumGap) * influence;
+  return baseGap + (hoverGap - baseGap) * influence;
 }
 
 export function useDockPreviewOffset(

@@ -1,5 +1,4 @@
 import type { Capture } from "../../../shared/types";
-import { dataUrlToBlob } from "../imageTools";
 
 export async function copyFilesToClipboard(files: File[]): Promise<void> {
   if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") return;
@@ -12,9 +11,8 @@ export async function copyFilesToClipboard(files: File[]): Promise<void> {
 }
 
 export function captureFileForDrag(capture: Capture, blob: Blob | undefined): File | undefined {
-  const imageBlob = blob ?? (capture.fullDataUrl ? dataUrlToBlob(capture.fullDataUrl) : undefined);
-  if (!imageBlob) return undefined;
-  return new File([imageBlob], "image.png", { type: "image/png" });
+  if (!blob) return undefined;
+  return new File([blob], "image.png", { type: blob.type || "image/png" });
 }
 
 export function dragPreviewElement(target: EventTarget, kind: "capture" | "group"): Element | undefined {

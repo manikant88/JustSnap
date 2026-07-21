@@ -12,7 +12,7 @@ export async function placeFilesInCurrentPage(
   preferredTarget?: Element
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (files.length > 1 && isWhatsAppOrigin(env.currentOrigin())) {
-    const pasted = await pasteFilesIntoPage(files, env, preferredTarget, 1800);
+    const pasted = await pasteFilesIntoPage(files, env, preferredTarget);
     if (pasted) return { ok: true };
     return {
       ok: false,
@@ -27,7 +27,7 @@ export async function placeFilesInCurrentPage(
 
   const fileInput = findAttachmentInput(env, preferredTarget);
   if (fileInput) {
-    const assigned = await withInsertionSignal(() => assignFilesToInput(fileInput, files), env);
+    const assigned = assignFilesToInput(fileInput, files);
     if (assigned) return { ok: true };
   }
 
@@ -35,7 +35,7 @@ export async function placeFilesInCurrentPage(
   if (target) {
     target.focus();
     await nextAnimationFrame();
-    const dropped = await withInsertionSignal(() => dispatchDropWithFiles(target, files), env);
+    const dropped = dispatchDropWithFiles(target, files);
     if (dropped) return { ok: true };
   }
 
@@ -50,7 +50,7 @@ export async function placeFilesInCurrentPage(
   fallbackTarget.focus();
   await nextAnimationFrame();
 
-  const dropped = await withInsertionSignal(() => dispatchDropWithFiles(fallbackTarget, files), env);
+  const dropped = dispatchDropWithFiles(fallbackTarget, files);
   if (dropped) return { ok: true };
 
   if (files.length > 1) {
@@ -67,14 +67,13 @@ export async function placeFilesInCurrentPage(
 async function pasteFilesIntoPage(
   files: File[],
   env: PageInsertEnvironment,
-  preferredTarget?: Element,
-  timeoutMs = 1200
+  preferredTarget?: Element
 ): Promise<boolean> {
   const target = resolveInsertTarget(env, preferredTarget) ?? findPageInsertTarget(env);
   if (!target) return false;
   target.focus();
   await nextAnimationFrame();
-  return withInsertionSignal(() => dispatchPasteWithFiles(target, files), env, timeoutMs);
+  return dispatchPasteWithFiles(target, files);
 }
 
 function isWhatsAppOrigin(origin: string): boolean {
@@ -116,7 +115,7 @@ function assignFilesToInput(input: HTMLInputElement, files: File[]): boolean {
     input.files = filesToTransfer(files).files;
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
-    return true;
+    return input.files?.length === files.length;
   } catch {
     return false;
   }
@@ -178,31 +177,6 @@ function dispatchDropWithFiles(target: HTMLElement, files: File[]): boolean {
   }
 }
 
-async function withInsertionSignal(
-  action: () => boolean | Promise<boolean>,
-  env: PageInsertEnvironment,
-  timeoutMs = 1200
-): Promise<boolean> {
-  let changed = false;
-  const observer = new MutationObserver((records) => {
-    if (records.some((record) => !env.isDockSnipNode(record.target))) changed = true;
-  });
-  observer.observe(document.body, {
-    attributes: true,
-    childList: true,
-    characterData: true,
-    subtree: true
-  });
-  try {
-    const attempted = await action();
-    if (!attempted) return false;
-    await sleep(timeoutMs);
-    return changed;
-  } finally {
-    observer.disconnect();
-  }
-}
-
 function filesToTransfer(files: File[]): DataTransfer {
   const transfer = new DataTransfer();
   files.forEach((file) => transfer.items.add(file));
@@ -213,10 +187,6 @@ function isVisibleElement(element: HTMLElement): boolean {
   const rect = element.getBoundingClientRect();
   const style = window.getComputedStyle(element);
   return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function nextAnimationFrame(): Promise<void> {

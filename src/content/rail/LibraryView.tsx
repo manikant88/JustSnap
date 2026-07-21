@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Folder, Plus, Trash2 } from "lucide-react";
+import { MAX_DOCK_ITEMS } from "../../../shared/libraryModel";
 import type { Capture, CaptureAddTarget, CaptureGroup, RailOrderItem } from "../../../shared/types";
 import {
   dockCapturePreviewFrame,
@@ -36,12 +37,16 @@ export function LibraryView(props: {
   onAddToGroup: (groupId: string) => void;
   onAddToCapture: (captureId: string) => void;
   onInteractionChange: (active: boolean) => void;
+  onRequireCaptures: (captureIds: string[]) => void;
+  presentationOnly?: boolean;
 }) {
+  const libraryRef = useRef<HTMLDivElement | null>(null);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [dropIntent, setDropIntent] = useState<RailDropIntent | null>(null);
   const onInteractionChange = props.onInteractionChange;
-  const focusedIndex = hoveredIndex;
+  const interactive = !props.presentationOnly;
+  const focusedIndex = interactive ? hoveredIndex : null;
   const visibleGroups = useMemo(
     () =>
       props.groups
@@ -51,12 +56,13 @@ export function LibraryView(props: {
             .map((captureId) => props.captures.find((capture) => capture.id === captureId))
             .filter((capture): capture is Capture => Boolean(capture))
         }))
-        .filter((entry) => entry.captures.length > 0),
+        ,
     [props.captures, props.groups]
   );
   const entries = useMemo<RailEntry[]>(
-    () =>
-      props.railOrder
+    () => {
+      const groupedCaptureIds = new Set(visibleGroups.flatMap((entry) => entry.group.captureIds));
+      return props.railOrder
         .map((item) => {
           if (item.kind === "group") {
             const group = visibleGroups.find((entry) => entry.group.id === item.id);
@@ -67,21 +73,24 @@ export function LibraryView(props: {
                 : group.captures;
             return { kind: "group" as const, group: group.group, captures } satisfies RailEntry;
           }
-          const capture = props.captures.find((entry) => entry.id === item.id && !entry.groupId);
+          const capture = props.captures.find((entry) => entry.id === item.id && !groupedCaptureIds.has(entry.id));
           return capture ? ({ kind: "capture" as const, capture } satisfies RailEntry) : undefined;
         })
-        .filter((entry): entry is RailEntry => Boolean(entry)),
+        .filter((entry): entry is RailEntry => Boolean(entry));
+    },
     [props.activeAddTarget, props.captures, props.pendingAddCaptures, props.railOrder, visibleGroups]
   );
   const layout = props.layout;
 
   useEffect(() => {
+    if (!interactive) return;
     if (props.activeAddTarget?.kind === "group") {
       setActiveGroupId(props.activeAddTarget.id);
     }
-  }, [props.activeAddTarget]);
+  }, [interactive, props.activeAddTarget]);
 
   useEffect(() => {
+    if (!interactive) return;
     if (!activeGroupId) return;
     const closeActiveGroup = (event: PointerEvent) => {
       const path = event.composedPath();
@@ -91,31 +100,75 @@ export function LibraryView(props: {
     };
     document.addEventListener("pointerdown", closeActiveGroup, true);
     return () => document.removeEventListener("pointerdown", closeActiveGroup, true);
-  }, [activeGroupId]);
+  }, [activeGroupId, interactive]);
+
+  useEffect(() => {
+    if (!interactive) return;
+    if (!activeGroupId || props.dragging) return;
+    const closeWhenPointerLeavesGroup = (event: PointerEvent) => {
+      const library = libraryRef.current;
+      if (!library) return;
+      const group = library.querySelector<HTMLElement>(
+        `[data-justsnap-group-id="${CSS.escape(activeGroupId)}"]`
+      );
+      if (!group) {
+        setActiveGroupId(null);
+        setHoveredIndex(null);
+        return;
+      }
+      const folderButton = group.querySelector<HTMLElement>(".justsnap-dock-folder-button");
+      const proximityTargets = [
+        ...(folderButton ? [folderButton] : []),
+        ...group.querySelectorAll<HTMLElement>(".justsnap-group-flyout-slot")
+      ];
+      const isNearFlyout = proximityTargets.some(
+        (target) => pointerDistanceFromRect(event.clientX, event.clientY, target.getBoundingClientRect()) <= 64
+      );
+      if (isNearFlyout) return;
+      setActiveGroupId(null);
+      setHoveredIndex(null);
+    };
+    document.addEventListener("pointermove", closeWhenPointerLeavesGroup, true);
+    return () => document.removeEventListener("pointermove", closeWhenPointerLeavesGroup, true);
+  }, [activeGroupId, interactive, props.dragging]);
 
   useEffect(() => {
     if (!props.dragging) setDropIntent(null);
   }, [props.dragging]);
 
   useEffect(() => {
-    onInteractionChange(hoveredIndex !== null || activeGroupId !== null);
-  }, [activeGroupId, hoveredIndex, onInteractionChange]);
+    onInteractionChange(interactive && (hoveredIndex !== null || activeGroupId !== null));
+  }, [activeGroupId, hoveredIndex, interactive, onInteractionChange]);
 
-  if (!props.captures.length) {
-    return null;
-  }
+  useEffect(() => {
+    if (!interactive) return;
+    if (hoveredIndex === null) return;
+    const entry = entries[hoveredIndex];
+    if (!entry) return;
+    props.onRequireCaptures(entry.kind === "group" ? entry.captures.map((capture) => capture.id) : [entry.capture.id]);
+  }, [entries, hoveredIndex, interactive, props.onRequireCaptures]);
+
+  useEffect(() => {
+    if (!interactive) return;
+    if (!activeGroupId) return;
+    const group = entries.find((entry) => entry.kind === "group" && entry.group.id === activeGroupId);
+    if (group?.kind === "group") props.onRequireCaptures(group.captures.map((capture) => capture.id));
+  }, [activeGroupId, entries, interactive, props.onRequireCaptures]);
 
   return (
     <div
-      className="justsnap-library"
+      ref={libraryRef}
+      className={["justsnap-library", props.presentationOnly ? "justsnap-library-overview" : ""].join(" ")}
       tabIndex={0}
       style={
         {
           gap: 0,
+          minHeight: MAX_DOCK_ITEMS * (layout.baseSize + layout.gap),
           "--justsnap-rail-surface": `${layout.surfaceWidth}px`
         } as React.CSSProperties
       }
       onMouseLeave={() => {
+        if (!interactive) return;
         if (!activeGroupId) setHoveredIndex(null);
         setDropIntent(null);
       }}
@@ -129,7 +182,8 @@ export function LibraryView(props: {
             captures={entry.captures}
             blobCache={props.blobCache}
             focusedIndex={focusedIndex}
-            active={activeGroupId === entry.group.id || props.activeAddTarget?.id === entry.group.id}
+            active={interactive && (activeGroupId === entry.group.id || props.activeAddTarget?.id === entry.group.id)}
+            presentationOnly={props.presentationOnly}
             baseSize={layout.baseSize}
             baseGap={layout.gap}
             setHoveredIndex={setHoveredIndex}
@@ -145,7 +199,7 @@ export function LibraryView(props: {
             onRemove={() => props.onRemoveGroup(entry.group.id)}
             onAdd={() => props.onAddToGroup(entry.group.id)}
             onStartCaptureDrag={(event, capture) =>
-              props.onStartDrag(event, { kind: "capture", captureId: capture.id }, [capture.id], capture.groupId)
+              props.onStartDrag(event, { kind: "capture", captureId: capture.id }, [capture.id], entry.group.id)
             }
             onRemoveCapture={props.onRemoveCapture}
           />
@@ -161,15 +215,17 @@ export function LibraryView(props: {
             }
             blobReady={Boolean(props.blobCache[entry.capture.id])}
             blob={props.blobCache[entry.capture.id]}
+            blobCache={props.blobCache}
             isNew={props.recentlyAddedCaptureId === entry.capture.id}
             recentlyAddedCaptureId={props.recentlyAddedCaptureId}
             focusedIndex={focusedIndex}
+            presentationOnly={props.presentationOnly}
             baseSize={layout.baseSize}
             baseGap={layout.gap}
             setHoveredIndex={setHoveredIndex}
             onHover={() => setActiveGroupId(null)}
             onDragStart={(event) =>
-              props.onStartDrag(event, { kind: "capture", captureId: entry.capture.id }, [entry.capture.id], entry.capture.groupId)
+              props.onStartDrag(event, { kind: "capture", captureId: entry.capture.id }, [entry.capture.id])
             }
             onDragEnd={props.onEndDrag}
             dragging={props.dragging}
@@ -191,6 +247,7 @@ function CaptureDockItem(props: {
   addFlyoutCaptures?: Capture[];
   blobReady: boolean;
   blob?: Blob;
+  blobCache: Record<string, Blob>;
   isNew?: boolean;
   recentlyAddedCaptureId: string | null;
   focusedIndex: number | null;
@@ -206,6 +263,7 @@ function CaptureDockItem(props: {
   setDropIntent: (intent: RailDropIntent | null) => void;
   onRemove: () => void;
   onAdd: () => void;
+  presentationOnly?: boolean;
 }) {
   const activeAdd = Boolean(props.addFlyoutCaptures);
   const influence = activeAdd ? 0 : dockInfluence(props.index, props.focusedIndex);
@@ -219,7 +277,7 @@ function CaptureDockItem(props: {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const slotRef = useRef<HTMLDivElement | null>(null);
   const previewOffsetY = useDockPreviewOffset(slotRef, false, frame.height);
-  const previewSource = props.capture.fullDataUrl ?? blobUrl ?? props.capture.thumbnailDataUrl;
+  const previewSource = blobUrl ?? props.capture.thumbnailDataUrl;
 
   useEffect(() => {
     if (!props.blob) {
@@ -251,11 +309,15 @@ function CaptureDockItem(props: {
         } as React.CSSProperties
       }
       onMouseEnter={() => {
+        if (props.presentationOnly) return;
         props.onHover?.();
         props.setHoveredIndex(props.index);
       }}
-      onMouseLeave={() => props.setHoveredIndex(null)}
+      onMouseLeave={() => {
+        if (!props.presentationOnly) props.setHoveredIndex(null);
+      }}
       onDragOver={(event) => {
+        if (props.presentationOnly) return;
         const intent = railIntentForCapture(event, props.capture.id, props.dragging);
         props.setDropIntent(intent);
         if (intent) {
@@ -264,6 +326,7 @@ function CaptureDockItem(props: {
         }
       }}
       onDrop={(event) => {
+        if (props.presentationOnly) return;
         const intent = railIntentForCapture(event, props.capture.id, props.dragging);
         if (!intent) return;
         event.preventDefault();
@@ -291,7 +354,7 @@ function CaptureDockItem(props: {
         <button
           className={[
             "justsnap-dock-image-button",
-            props.blobReady ? "" : "justsnap-card-loading",
+            props.presentationOnly || props.blobReady ? "" : "justsnap-card-loading",
             props.isNew ? "justsnap-dock-image-new justsnap-dock-image-added-focus" : ""
           ].join(" ")}
           style={{
@@ -299,12 +362,13 @@ function CaptureDockItem(props: {
             height: frame.height
           }}
           aria-label="DockSnip capture"
-          draggable={props.blobReady}
+          draggable={props.presentationOnly || props.blobReady}
           onDragStart={props.onDragStart}
           onDragEnd={props.onDragEnd}
           onFocus={() => props.setHoveredIndex(props.index)}
           onBlur={() => props.setHoveredIndex(null)}
           onMouseEnter={() => {
+            if (props.presentationOnly) return;
             props.onHover?.();
             props.setHoveredIndex(props.index);
           }}
@@ -312,7 +376,7 @@ function CaptureDockItem(props: {
           <img src={previewSource} alt="" />
         </button>
       )}
-      <button
+      {!props.presentationOnly && <button
         className="justsnap-dock-add"
         aria-label="Add captures"
         onMouseDown={(event) => event.stopPropagation()}
@@ -323,8 +387,8 @@ function CaptureDockItem(props: {
         }}
       >
         <Plus size={14} strokeWidth={2.4} />
-      </button>
-      {isFocused && (
+      </button>}
+      {!props.presentationOnly && isFocused && (
         <button
           className="justsnap-dock-remove"
           aria-label="Remove capture"
@@ -341,6 +405,7 @@ function CaptureDockItem(props: {
       {props.addFlyoutCaptures && (
         <AddTargetFlyout
           captures={props.addFlyoutCaptures}
+          blobCache={props.blobCache}
           activeCaptureId={props.capture.id}
           recentlyAddedCaptureId={props.recentlyAddedCaptureId}
         />
@@ -351,6 +416,7 @@ function CaptureDockItem(props: {
 
 function AddTargetFlyout(props: {
   captures: Capture[];
+  blobCache: Record<string, Blob>;
   activeCaptureId: string;
   recentlyAddedCaptureId: string | null;
 }) {
@@ -374,6 +440,7 @@ function AddTargetFlyout(props: {
           key={capture.id}
           index={captureIndex}
           capture={capture}
+          blob={props.blobCache[capture.id]}
           focusedIndex={focusedIndex}
           baseSize={layout.baseSize}
           baseGap={layout.gap}
@@ -389,6 +456,7 @@ function AddTargetFlyout(props: {
 function AddTargetFlyoutItem(props: {
   index: number;
   capture: Capture;
+  blob?: Blob;
   focusedIndex: number | null;
   baseSize: number;
   baseGap: number;
@@ -405,8 +473,19 @@ function AddTargetFlyoutItem(props: {
   const slotWidth = Math.max(thumbnailSize, frame.width);
   const slotHeight = frame.height + dockItemGap(props.baseGap, props.baseSize, influence);
   const slotRef = useRef<HTMLDivElement | null>(null);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const previewOffsetY = useDockPreviewOffset(slotRef, false, frame.height);
-  const previewSource = props.capture.fullDataUrl ?? props.capture.thumbnailDataUrl;
+  const previewSource = blobUrl ?? props.capture.thumbnailDataUrl;
+
+  useEffect(() => {
+    if (!props.blob) {
+      setBlobUrl(null);
+      return;
+    }
+    const nextBlobUrl = URL.createObjectURL(props.blob);
+    setBlobUrl(nextBlobUrl);
+    return () => URL.revokeObjectURL(nextBlobUrl);
+  }, [props.blob]);
 
   return (
     <div
@@ -463,16 +542,19 @@ function GroupDockItem(props: {
   onAdd: () => void;
   onStartCaptureDrag: (event: React.DragEvent, capture: Capture) => void;
   onRemoveCapture: (captureId: string) => void;
+  presentationOnly?: boolean;
 }) {
   const influence = props.active ? 1 : dockInfluence(props.index, props.focusedIndex);
   const size = dockFolderSize(props.baseSize, influence);
-  const slotHeight = size + dockItemGap(props.baseGap, props.baseSize, influence);
+  const itemGap = dockItemGap(props.baseGap, props.baseSize, influence);
   const isFocused = props.focusedIndex === props.index || props.active;
   const [flyoutFocusedIndex, setFlyoutFocusedIndex] = useState<number | null>(null);
   const flyoutLayout = dockLayoutForCount(props.captures.length, 420);
+  const slotHeight = size + itemGap;
 
   return (
     <div
+      data-justsnap-group-id={props.group.id}
       className={[
         "justsnap-dock-slot",
         "justsnap-dock-group-slot",
@@ -486,14 +568,18 @@ function GroupDockItem(props: {
           zIndex: Math.round(influence * 20),
           "--justsnap-dock-item-half": `${size / 2}px`,
           "--justsnap-add-offset-y": "0px",
-          "--justsnap-add-item-half": `${size / 2}px`
+          "--justsnap-add-item-half": `${size / 2}px`,
+          "--justsnap-folder-size": `${size}px`,
+          "--justsnap-folder-item-gap": `${itemGap}px`
         } as React.CSSProperties
       }
       onMouseEnter={() => {
+        if (props.presentationOnly) return;
         props.onActivate();
         props.setHoveredIndex(props.index);
       }}
       onDragOver={(event) => {
+        if (props.presentationOnly) return;
         const intent = railIntentForGroup(event, props.group.id, props.dragging);
         props.setDropIntent(intent);
         if (intent) {
@@ -502,6 +588,7 @@ function GroupDockItem(props: {
         }
       }}
       onDrop={(event) => {
+        if (props.presentationOnly) return;
         const intent = railIntentForGroup(event, props.group.id, props.dragging);
         if (!intent) return;
         event.preventDefault();
@@ -514,23 +601,26 @@ function GroupDockItem(props: {
         className="justsnap-dock-folder-button"
         style={{ width: size, height: size }}
         aria-label={`${props.group.name}, ${props.captures.length} captures`}
-        draggable={props.captures.every((capture) => props.blobCache[capture.id])}
+        draggable={props.presentationOnly || props.captures.every((capture) => props.blobCache[capture.id])}
         onDragStart={props.onDragStart}
         onDragEnd={props.onDragEnd}
         onFocus={() => props.setHoveredIndex(props.index)}
         onBlur={() => props.setHoveredIndex(null)}
         onMouseEnter={() => {
+          if (props.presentationOnly) return;
           props.onActivate();
           props.setHoveredIndex(props.index);
         }}
       >
         <span className="justsnap-folder-grid" aria-hidden="true">
-          {props.captures.slice(0, 4).map((capture) => (
-            <img key={capture.id} src={capture.thumbnailDataUrl} alt="" />
-          ))}
+          {props.captures.length > 0
+            ? props.captures.slice(0, 4).map((capture) => (
+                <img key={capture.id} src={capture.thumbnailDataUrl} alt="" />
+              ))
+            : <Folder className="justsnap-empty-folder-icon" size={Math.max(18, size * 0.42)} />}
         </span>
       </button>
-      <button
+      {!props.presentationOnly && <button
         className="justsnap-dock-add"
         aria-label="Add captures to folder"
         onMouseDown={(event) => event.stopPropagation()}
@@ -541,8 +631,8 @@ function GroupDockItem(props: {
         }}
       >
         <Plus size={14} strokeWidth={2.4} />
-      </button>
-      {isFocused && (
+      </button>}
+      {!props.presentationOnly && isFocused && (
         <>
           <button
             className="justsnap-dock-remove"
@@ -567,6 +657,9 @@ function GroupDockItem(props: {
             }
             onMouseLeave={() => setFlyoutFocusedIndex(null)}
           >
+            {props.captures.length === 0 && (
+              <span className="justsnap-empty-folder-message">Add images with the + button</span>
+            )}
             {props.captures.map((capture, captureIndex) => (
               <GroupFlyoutDockItem
                 key={capture.id}
@@ -624,7 +717,7 @@ function GroupFlyoutDockItem(props: {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const slotRef = useRef<HTMLDivElement | null>(null);
   const previewOffsetY = useDockPreviewOffset(slotRef, false, frame.height);
-  const previewSource = props.capture.fullDataUrl ?? blobUrl ?? props.capture.thumbnailDataUrl;
+  const previewSource = blobUrl ?? props.capture.thumbnailDataUrl;
 
   useEffect(() => {
     if (!props.blob) {
@@ -754,7 +847,7 @@ function folderIntentForCapture(
       targetCaptureId
     };
   }
-  return { scope: "folder", action: "add-to-folder", groupId, targetCaptureId };
+  return null;
 }
 
 function verticalDropZone(event: React.DragEvent): "before" | "center" | "after" {
@@ -794,9 +887,17 @@ function isActiveRailInteraction(path: EventTarget[]): boolean {
         [
           ".justsnap-dock-image-button",
           ".justsnap-dock-folder-button",
+          ".justsnap-dock-add",
+          ".justsnap-group-flyout",
           ".justsnap-dock-remove"
         ].join(",")
       )
     );
   });
+}
+
+function pointerDistanceFromRect(x: number, y: number, rect: DOMRect): number {
+  const horizontalDistance = Math.max(rect.left - x, 0, x - rect.right);
+  const verticalDistance = Math.max(rect.top - y, 0, y - rect.bottom);
+  return Math.hypot(horizontalDistance, verticalDistance);
 }

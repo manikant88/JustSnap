@@ -18,8 +18,8 @@ function OptionsApp() {
       <section>
         <h1>DockSnip</h1>
         <p>
-          DockSnip stores screenshots, docked images, and workflow activity locally in this Chrome profile. Export data is
-          metadata-only and does not include raw screenshot pixels.
+          DockSnip stores screenshots and docked images locally in this Chrome profile. Your images are not uploaded to a
+          DockSnip server.
         </p>
         {library && (
           <dl>
@@ -30,10 +30,6 @@ function OptionsApp() {
             <div>
               <dt>Groups</dt>
               <dd>{library.groups.length}</dd>
-            </div>
-            <div>
-              <dt>Activity events</dt>
-              <dd>{library.events.length}</dd>
             </div>
           </dl>
         )}

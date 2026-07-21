@@ -1,15 +1,11 @@
 export type Capture = {
   id: string;
-  sourceUrl: string;
-  sourceOrigin: string;
-  pageTitle: string;
   createdAt: number;
   width: number;
   height: number;
   thumbnailDataUrl: string;
+  thumbnailVersion?: number;
   imageBlobKey: string;
-  fullDataUrl?: string;
-  groupId?: string;
 };
 
 export type CaptureGroup = {
@@ -17,7 +13,6 @@ export type CaptureGroup = {
   name: string;
   createdAt: number;
   captureIds: string[];
-  collapsed: boolean;
 };
 
 export type RailOrderItem =
@@ -26,59 +21,40 @@ export type RailOrderItem =
 
 export type DockOrderItem = RailOrderItem;
 
-export type ActivityEventType =
-  | "rail_opened"
-  | "capture_started"
-  | "capture_created"
-  | "group_created"
-  | "group_renamed"
-  | "capture_grouped"
-  | "capture_removed"
-  | "group_removed"
-  | "capture_copied"
-  | "group_copied"
-  | "capture_inserted"
-  | "group_inserted"
-  | "capture_downloaded"
-  | "group_downloaded"
-  | "capture_drag_started"
-  | "group_drag_started"
-  | "rail_reordered"
-  | "folder_reordered"
-  | "browser_paste_detected"
-  | "browser_drop_detected"
-  | "metadata_exported";
-
-export type ActivityEvent = {
+export type CaptureDock = {
   id: string;
-  type: ActivityEventType;
+  name: string;
   createdAt: number;
-  captureIds: string[];
-  groupId?: string;
-  sourceOrigin?: string;
-  destinationUrl?: string;
-  destinationOrigin?: string;
-  confidence?: "intent" | "detected";
-  note?: string;
-};
-
-export type PendingUsage = {
-  id: string;
-  action: "copy" | "drag";
-  createdAt: number;
-  expiresAt: number;
-  captureIds: string[];
-  groupId?: string;
-  sourceOrigin?: string;
+  order: DockOrderItem[];
 };
 
 export type LibraryState = {
   captures: Capture[];
   groups: CaptureGroup[];
+  docks: CaptureDock[];
+  activeDockId: string;
+  hasSeenDockOverflow: boolean;
+  lastAutoCreatedDockId?: string;
+  /** Active dock order. Kept as a compatibility view for existing UI clients. */
   railOrder: RailOrderItem[];
-  events: ActivityEvent[];
-  pendingUsages: PendingUsage[];
 };
+
+export type LibraryMutation =
+  | { type: "move_rail_item"; item: RailOrderItem; target: RailOrderItem; position: "insert-before" | "insert-after" }
+  | { type: "create_group"; groupId: string; name: string; createdAt: number; sourceCaptureId: string; targetCaptureId: string }
+  | { type: "add_capture_to_group"; captureId: string; groupId: string }
+  | { type: "move_capture_in_group"; captureId: string; groupId: string; targetCaptureId: string; position: "insert-before" | "insert-after" }
+  | { type: "ungroup_capture"; captureId: string }
+  | { type: "delete_capture"; captureId: string }
+  | { type: "delete_group"; groupId: string }
+  | { type: "rename_group"; groupId: string; name: string }
+  | { type: "create_empty_group"; groupId: string; name: string; createdAt: number }
+  | { type: "create_dock"; dockId: string; name: string; createdAt: number; activate?: boolean }
+  | { type: "set_active_dock"; dockId: string }
+  | { type: "rename_dock"; dockId: string; name: string }
+  | { type: "delete_dock"; dockId: string }
+  | { type: "move_item_to_dock"; item: DockOrderItem; dockId: string }
+  | { type: "acknowledge_dock_overflow" };
 
 export type CaptureImage = {
   dataUrl: string;
@@ -125,26 +101,18 @@ export type BackgroundRequest =
   | {
       type: "JUSTSNAP_IMPORT_IMAGE_URL";
       imageUrl: string;
-      sourceUrl: string;
-      sourceOrigin: string;
-      pageTitle: string;
     }
   | {
       type: "JUSTSNAP_CAPTURE_SELECTION";
       sessionId?: string;
       rect: CaptureSelectionRect;
       viewport: CaptureViewport;
-      sourceUrl: string;
-      sourceOrigin: string;
-      pageTitle: string;
     }
   | { type: "JUSTSNAP_FINISH_CAPTURE_SESSION"; sessionId: string }
   | { type: "JUSTSNAP_CANCEL_CAPTURE_SESSION"; sessionId: string }
   | { type: "JUSTSNAP_GET_LIBRARY" }
-  | { type: "JUSTSNAP_SAVE_LIBRARY"; library: Pick<LibraryState, "captures" | "groups" | "railOrder" | "events"> }
-  | { type: "JUSTSNAP_APPEND_EVENT"; event: ActivityEvent }
-  | { type: "JUSTSNAP_SET_PENDING_USAGE"; pending: PendingUsage }
-  | { type: "JUSTSNAP_MATCH_PENDING_USAGE"; interaction: "paste" | "drop"; destinationUrl: string; destinationOrigin: string };
+  | { type: "JUSTSNAP_GET_IMAGE_DATA"; imageBlobKey: string }
+  | { type: "JUSTSNAP_MUTATE_LIBRARY"; mutation: LibraryMutation };
 
 export type BackgroundResponse<T = unknown> =
   | { ok: true; data: T }

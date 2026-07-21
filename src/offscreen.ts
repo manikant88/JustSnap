@@ -17,7 +17,11 @@ type OffscreenCropResult = {
   thumbnail: CaptureImage;
 };
 
-chrome.runtime.onMessage.addListener((message: OffscreenCropRequest | OffscreenPrepareImageRequest, _sender, sendResponse) => {
+const MAX_IMAGE_PIXELS = 100_000_000;
+
+chrome.runtime.onMessage.addListener((rawMessage: unknown, sender, sendResponse) => {
+  const message = validateOffscreenRequest(rawMessage, sender);
+  if (!message) return false;
   const operation =
     message.type === "JUSTSNAP_OFFSCREEN_CROP"
       ? cropSelection(message)
@@ -35,6 +39,46 @@ chrome.runtime.onMessage.addListener((message: OffscreenCropRequest | OffscreenP
     );
   return true;
 });
+
+function validateOffscreenRequest(
+  value: unknown,
+  sender: chrome.runtime.MessageSender
+): OffscreenCropRequest | OffscreenPrepareImageRequest | undefined {
+  if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`)) return undefined;
+  if (!isRecord(value) || typeof value.type !== "string") return undefined;
+  if (value.type === "JUSTSNAP_OFFSCREEN_PREPARE_IMAGE") {
+    return isImageDataUrl(value.dataUrl) ? { type: value.type, dataUrl: value.dataUrl } : undefined;
+  }
+  if (value.type !== "JUSTSNAP_OFFSCREEN_CROP" || !isImageDataUrl(value.screenshotDataUrl)) return undefined;
+  if (!isRect(value.rect) || !isViewport(value.viewport)) return undefined;
+  return { type: value.type, screenshotDataUrl: value.screenshotDataUrl, rect: value.rect, viewport: value.viewport };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isImageDataUrl(value: unknown): value is string {
+  return typeof value === "string" && value.startsWith("data:image/") && value.length <= 75_000_000;
+}
+
+function isRect(value: unknown): value is CaptureSelectionRect {
+  return isRecord(value) && isFiniteNumber(value.left) && isFiniteNumber(value.top) &&
+    isPositiveDimension(value.width) && isPositiveDimension(value.height);
+}
+
+function isViewport(value: unknown): value is CaptureViewport {
+  return isRecord(value) && isPositiveDimension(value.width) && isPositiveDimension(value.height) &&
+    isFiniteNumber(value.offsetLeft) && isFiniteNumber(value.offsetTop);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isPositiveDimension(value: unknown): value is number {
+  return isFiniteNumber(value) && value > 0 && value <= 100_000;
+}
 
 async function cropSelection(request: OffscreenCropRequest): Promise<OffscreenCropResult> {
   const image = await loadImage(request.screenshotDataUrl);
@@ -54,12 +98,19 @@ async function cropSelection(request: OffscreenCropRequest): Promise<OffscreenCr
   return { crop, thumbnail };
 }
 
-async function prepareImage(request: OffscreenPrepareImageRequest): Promise<OffscreenCropResult> {
+async function prepareImage(request: OffscreenPrepareImageRequest): Promise<{ width: number; height: number; thumbnail: CaptureImage }> {
   const image = await loadImage(request.dataUrl);
-  const crop = renderImage(image, image.naturalWidth, image.naturalHeight, 0.92);
-  const thumbnailScale = Math.min(1, 360 / Math.max(crop.width, crop.height));
-  const thumbnail = await resizeDataUrl(crop.dataUrl, Math.round(crop.width * thumbnailScale), Math.round(crop.height * thumbnailScale), 0.84);
-  return { crop, thumbnail };
+  if (image.naturalWidth * image.naturalHeight > MAX_IMAGE_PIXELS) {
+    throw new Error("That image exceeds the 100 megapixel import limit.");
+  }
+  const thumbnailScale = Math.min(1, 360 / Math.max(image.naturalWidth, image.naturalHeight));
+  const thumbnail = renderImage(
+    image,
+    Math.round(image.naturalWidth * thumbnailScale),
+    Math.round(image.naturalHeight * thumbnailScale),
+    0.84
+  );
+  return { width: image.naturalWidth, height: image.naturalHeight, thumbnail };
 }
 
 function loadImage(dataUrl: string): Promise<HTMLImageElement> {
@@ -88,17 +139,21 @@ function renderImage(
   canvas.height = Math.max(1, height);
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Could not prepare screenshot canvas.");
-  context.drawImage(
-    image,
-    source?.sourceX ?? 0,
-    source?.sourceY ?? 0,
-    source?.sourceWidth ?? width,
-    source?.sourceHeight ?? height,
-    0,
-    0,
-    canvas.width,
-    canvas.height
-  );
+  if (source) {
+    context.drawImage(
+      image,
+      source.sourceX,
+      source.sourceY,
+      source.sourceWidth,
+      source.sourceHeight,
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
+  } else {
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  }
   return {
     dataUrl: canvas.toDataURL("image/png", quality),
     width: canvas.width,
