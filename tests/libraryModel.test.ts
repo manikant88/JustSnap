@@ -22,10 +22,10 @@ const base = normalizeLibrary({
 {
   assert.equal(dockInfluence(4, null), 0);
   assert.equal(dockInfluence(4, 4), 1);
-  assert.equal(dockInfluence(3, 4), 0.7);
-  assert.equal(dockInfluence(5, 4), 0.7);
-  assert.equal(dockInfluence(2, 4), 0.4);
-  assert.equal(dockInfluence(6, 4), 0.4);
+  assert.equal(dockInfluence(3, 4), 0.28);
+  assert.equal(dockInfluence(5, 4), 0.28);
+  assert.equal(dockInfluence(2, 4), 0.12);
+  assert.equal(dockInfluence(6, 4), 0.12);
   assert.equal(dockInfluence(1, 4), 0);
 }
 
@@ -40,13 +40,33 @@ const base = normalizeLibrary({
       { left: 230, top: 440, bottom: 520, curve: 24, outerCurve: 18 }
     ]
   });
-  assert.ok(path.startsWith("M 380 0 H 306"));
+  assert.ok(path.startsWith("M 380 0 H 306 V 162"));
   assert.ok(path.includes(" 40 "));
-  assert.ok(path.includes("Q 306 100 282 100 H 258 Q 240 100 240 118"));
+  assert.ok(path.includes("Q 306 210 258 210 H 60 Q 40 210 40 230"));
   assert.ok(path.includes("Q "));
   assert.ok(!path.includes("NaN"));
   assert.ok((path.match(/\bL\b/g) ?? []).length === 0);
   assert.ok(path.endsWith("Z"));
+}
+
+{
+  const edgePath = dynamicIslandPath({
+    width: 380,
+    height: 600,
+    baselineLeft: 306,
+    regions: [
+      {
+        left: 40,
+        top: -8,
+        bottom: 608,
+        curve: 48,
+        outerCurve: 20
+      }
+    ]
+  });
+  assert.ok(edgePath.includes("V -56"));
+  assert.ok(edgePath.includes("Q 306 -8 258 -8"));
+  assert.ok(edgePath.includes("Q 306 608 306 656"));
 }
 
 {

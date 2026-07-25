@@ -8,8 +8,8 @@ export function dockInfluence(index: number, hoveredIndex: number | null): numbe
   if (hoveredIndex === null) return 0;
   const distance = Math.abs(index - hoveredIndex);
   if (distance === 0) return 1;
-  if (distance === 1) return 0.7;
-  if (distance === 2) return 0.4;
+  if (distance === 1) return 0.28;
+  if (distance === 2) return 0.12;
   return 0;
 }
 
@@ -35,123 +35,52 @@ export function dynamicIslandPath(options: {
   const regions = normalizeIslandRegions(
     options.regions,
     width,
-    height,
     baselineLeft
   );
   if (regions.length === 0) return "";
 
-  const breakpoints = Array.from(
-    new Set([0, height, ...regions.flatMap((region) => [region.top, region.bottom])])
-  ).sort((a, b) => a - b);
-  const segments: IslandBoundarySegment[] = [];
+  const region = regions.reduce((outermost, candidate) =>
+    candidate.left < outermost.left ? candidate : outermost
+  );
+  const protrusion = baselineLeft - region.left;
+  if (protrusion < 0.1) return "";
 
-  for (let index = 0; index < breakpoints.length - 1; index += 1) {
-    const top = breakpoints[index];
-    const bottom = breakpoints[index + 1];
-    if (bottom - top < 0.1) continue;
+  const itemHeight = region.bottom - region.top;
+  const outerRadius = Math.min(region.outerCurve, itemHeight / 2);
+  const [topJoinRadius, topOuterRadius] = fitIslandRadii(
+    region.curve,
+    outerRadius,
+    protrusion
+  );
+  const [bottomJoinRadius, bottomOuterRadius] = fitIslandRadii(
+    region.curve,
+    outerRadius,
+    protrusion
+  );
 
-    const midpoint = top + (bottom - top) / 2;
-    const activeRegions = regions.filter(
-      (region) => midpoint >= region.top && midpoint <= region.bottom
-    );
-    const left = activeRegions.reduce(
-      (minimum, region) => Math.min(minimum, region.left),
-      baselineLeft
-    );
-    const edgeRegions = activeRegions.filter(
-      (region) => Math.abs(region.left - left) < 0.1
-    );
-    const joinCurve =
-      edgeRegions.length > 0
-        ? edgeRegions.reduce(
-            (maximum, region) => Math.max(maximum, region.curve),
-            0
-          )
-        : 20;
-    const outerCurve =
-      edgeRegions.length > 0
-        ? edgeRegions.reduce(
-            (maximum, region) => Math.max(maximum, region.outerCurve),
-            0
-          )
-        : 20;
-    const previous = segments.at(-1);
-
-    if (previous && Math.abs(previous.left - left) < 0.1) {
-      previous.bottom = bottom;
-      previous.joinCurve = Math.max(previous.joinCurve, joinCurve);
-      previous.outerCurve = Math.max(previous.outerCurve, outerCurve);
-    } else {
-      segments.push({ top, bottom, left, joinCurve, outerCurve });
-    }
-  }
-
-  if (segments.length === 0) return "";
-
-  const commands = [
+  return [
     `M ${pathNumber(width)} 0`,
-    `H ${pathNumber(segments[0].left)}`
-  ];
-
-  for (let index = 0; index < segments.length - 1; index += 1) {
-    const current = segments[index];
-    const next = segments[index + 1];
-    const transitionY = current.bottom;
-    const horizontalDistance = Math.abs(next.left - current.left);
-    const expandsOutward = next.left < current.left;
-    let firstRadius = Math.min(
-      expandsOutward ? next.joinCurve : current.outerCurve,
-      (current.bottom - current.top) / 2
-    );
-    let secondRadius = Math.min(
-      expandsOutward ? next.outerCurve : current.joinCurve,
-      (next.bottom - next.top) / 2
-    );
-    const radiusTotal = firstRadius + secondRadius;
-    if (radiusTotal > horizontalDistance && radiusTotal > 0) {
-      const radiusScale = horizontalDistance / radiusTotal;
-      firstRadius *= radiusScale;
-      secondRadius *= radiusScale;
-    }
-
-    if (horizontalDistance < 0.1) {
-      commands.push(
-        `V ${pathNumber(transitionY)}`,
-        `H ${pathNumber(next.left)}`
-      );
-      continue;
-    }
-
-    commands.push(`V ${pathNumber(transitionY - firstRadius)}`);
-    if (expandsOutward) {
-      commands.push(
-        `Q ${pathNumber(current.left)} ${pathNumber(transitionY)} ${pathNumber(
-          current.left - firstRadius
-        )} ${pathNumber(transitionY)}`,
-        `H ${pathNumber(next.left + secondRadius)}`,
-        `Q ${pathNumber(next.left)} ${pathNumber(transitionY)} ${pathNumber(
-          next.left
-        )} ${pathNumber(transitionY + secondRadius)}`
-      );
-    } else {
-      commands.push(
-        `Q ${pathNumber(current.left)} ${pathNumber(transitionY)} ${pathNumber(
-          current.left + firstRadius
-        )} ${pathNumber(transitionY)}`,
-        `H ${pathNumber(next.left - secondRadius)}`,
-        `Q ${pathNumber(next.left)} ${pathNumber(transitionY)} ${pathNumber(
-          next.left
-        )} ${pathNumber(transitionY + secondRadius)}`
-      );
-    }
-  }
-
-  commands.push(
+    `H ${pathNumber(baselineLeft)}`,
+    `V ${pathNumber(region.top - topJoinRadius)}`,
+    `Q ${pathNumber(baselineLeft)} ${pathNumber(region.top)} ${pathNumber(
+      baselineLeft - topJoinRadius
+    )} ${pathNumber(region.top)}`,
+    `H ${pathNumber(region.left + topOuterRadius)}`,
+    `Q ${pathNumber(region.left)} ${pathNumber(region.top)} ${pathNumber(
+      region.left
+    )} ${pathNumber(region.top + topOuterRadius)}`,
+    `V ${pathNumber(region.bottom - bottomOuterRadius)}`,
+    `Q ${pathNumber(region.left)} ${pathNumber(region.bottom)} ${pathNumber(
+      region.left + bottomOuterRadius
+    )} ${pathNumber(region.bottom)}`,
+    `H ${pathNumber(baselineLeft - bottomJoinRadius)}`,
+    `Q ${pathNumber(baselineLeft)} ${pathNumber(region.bottom)} ${pathNumber(
+      baselineLeft
+    )} ${pathNumber(region.bottom + bottomJoinRadius)}`,
     `V ${pathNumber(height)}`,
     `H ${pathNumber(width)}`,
     "Z"
-  );
-  return commands.join(" ");
+  ].join(" ");
 }
 
 export function dockLayoutForCount(count: number, maxHeight = railLibraryHeight()): DockLayout {
@@ -287,26 +216,17 @@ function railLibraryHeight(): number {
   return Math.max(0, railHeight);
 }
 
-type IslandBoundarySegment = {
-  top: number;
-  bottom: number;
-  left: number;
-  joinCurve: number;
-  outerCurve: number;
-};
-
 type NormalizedIslandRegion = Required<DynamicIslandRegion>;
 
 function normalizeIslandRegions(
   regions: DynamicIslandRegion[],
   width: number,
-  height: number,
   baselineLeft: number
 ): NormalizedIslandRegion[] {
   return regions
     .map((region) => {
-      const top = clamp(finiteNumber(region.top), 0, height);
-      const bottom = clamp(finiteNumber(region.bottom), top, height);
+      const top = finiteNumber(region.top);
+      const bottom = Math.max(top, finiteNumber(region.bottom));
       return {
         left: clamp(finiteNumber(region.left), 0, Math.min(width, baselineLeft)),
         top,
@@ -316,6 +236,17 @@ function normalizeIslandRegions(
       };
     })
     .filter((region) => region.bottom - region.top >= 0.1);
+}
+
+function fitIslandRadii(
+  joinRadius: number,
+  outerRadius: number,
+  availableWidth: number
+): [number, number] {
+  const total = joinRadius + outerRadius;
+  if (total <= availableWidth || total <= 0) return [joinRadius, outerRadius];
+  const scale = availableWidth / total;
+  return [joinRadius * scale, outerRadius * scale];
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {

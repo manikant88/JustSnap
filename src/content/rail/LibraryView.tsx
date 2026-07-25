@@ -109,16 +109,12 @@ export function LibraryView(props: {
       : `capture:${islandFocusEntry.capture.id}`
     : null;
 
-  useStableDockPointerHover({
+  useStablePointerHover({
     containerRef: libraryRef,
     dataAttribute: "data-docksnip-entry-index",
     focusedIndex: hoveredIndex,
     setFocusedIndex: setHoveredIndex,
-    enabled: interactive && !props.dragging && activeGroupId === null,
-    surfaceWidth: layout.surfaceWidth,
-    geometryKey: `${entries.map((entry) =>
-      entry.kind === "group" ? `group:${entry.group.id}` : `capture:${entry.capture.id}`
-    ).join("|")}:${layout.baseSize}:${layout.gap}:${layout.surfaceWidth}`
+    enabled: interactive && !props.dragging && activeGroupId === null
   });
   useDynamicIslandShape({
     containerRef: libraryRef,
@@ -1010,178 +1006,6 @@ function useStablePointerHover(options: {
   ]);
 }
 
-type DockHoverAnchor = {
-  index: number;
-  centerY: number;
-  top: number;
-  bottom: number;
-};
-
-function useStableDockPointerHover(options: {
-  containerRef: React.RefObject<HTMLElement | null>;
-  dataAttribute: string;
-  focusedIndex: number | null;
-  setFocusedIndex: (index: number | null) => void;
-  enabled: boolean;
-  surfaceWidth: number;
-  geometryKey: string;
-}) {
-  const anchorsRef = useRef<DockHoverAnchor[]>([]);
-
-  useLayoutEffect(() => {
-    anchorsRef.current = [];
-  }, [options.geometryKey]);
-
-  useEffect(() => {
-    if (!options.enabled) return;
-
-    const measureAnchors = (container: HTMLElement): DockHoverAnchor[] => {
-      const entries = [
-        ...container.querySelectorAll<HTMLElement>(`[${options.dataAttribute}]`)
-      ];
-      return entries
-        .map((entry) => {
-          const index = Number(entry.getAttribute(options.dataAttribute));
-          const surface =
-            entry.querySelector<HTMLElement>(
-              ".justsnap-dock-image-button, .justsnap-dock-folder-button"
-            ) ?? entry;
-          const rect = surface.getBoundingClientRect();
-          if (!Number.isInteger(index) || rect.width <= 0 || rect.height <= 0) return null;
-          return {
-            index,
-            centerY: rect.top + rect.height / 2,
-            top: rect.top,
-            bottom: rect.bottom
-          };
-        })
-        .filter((anchor): anchor is DockHoverAnchor => Boolean(anchor))
-        .sort((first, second) => first.centerY - second.centerY);
-    };
-
-    const trackPointer = (event: PointerEvent) => {
-      const container = options.containerRef.current;
-      if (!container) return;
-      if (anchorsRef.current.length === 0) {
-        anchorsRef.current = measureAnchors(container);
-      }
-
-      const anchors = anchorsRef.current;
-      if (anchors.length === 0) return;
-      const containerRect = container.getBoundingClientRect();
-      const laneLeft = containerRect.right - options.surfaceWidth - 4;
-      const inStableLane =
-        event.clientX >= laneLeft &&
-        event.clientX <= containerRect.right + 4 &&
-        event.clientY >= anchorRangeTop(anchors) &&
-        event.clientY <= anchorRangeBottom(anchors);
-
-      if (inStableLane) {
-        const nextIndex = stableDockHoverIndex(
-          anchors,
-          event.clientY,
-          options.focusedIndex
-        );
-        if (nextIndex !== null && nextIndex !== options.focusedIndex) {
-          options.setFocusedIndex(nextIndex);
-        }
-        return;
-      }
-
-      if (options.focusedIndex === null) return;
-      const focusedEntry = container.querySelector<HTMLElement>(
-        `[${options.dataAttribute}="${options.focusedIndex}"]`
-      );
-      if (!focusedEntry) {
-        options.setFocusedIndex(null);
-        return;
-      }
-
-      const hoverSurfaces = [
-        focusedEntry,
-        ...focusedEntry.querySelectorAll<HTMLElement>(
-          [
-            ".justsnap-dock-image-button",
-            ".justsnap-dock-folder-button",
-            ".justsnap-dock-add",
-            ".justsnap-dock-remove",
-            ".justsnap-add-target-flyout"
-          ].join(",")
-        )
-      ];
-      const remainsInHoverEnvelope = hoverSurfaces.some(
-        (surface) =>
-          pointerDistanceFromRect(
-            event.clientX,
-            event.clientY,
-            surface.getBoundingClientRect()
-          ) <= 12
-      );
-      if (!remainsInHoverEnvelope) options.setFocusedIndex(null);
-    };
-
-    const resetAnchors = () => {
-      anchorsRef.current = [];
-    };
-    document.addEventListener("pointermove", trackPointer, true);
-    window.addEventListener("resize", resetAnchors);
-    return () => {
-      document.removeEventListener("pointermove", trackPointer, true);
-      window.removeEventListener("resize", resetAnchors);
-    };
-  }, [
-    options.containerRef,
-    options.dataAttribute,
-    options.enabled,
-    options.focusedIndex,
-    options.setFocusedIndex,
-    options.surfaceWidth
-  ]);
-}
-
-function stableDockHoverIndex(
-  anchors: DockHoverAnchor[],
-  pointerY: number,
-  focusedIndex: number | null
-): number | null {
-  const candidate = anchors.reduce((closest, anchor) =>
-    Math.abs(anchor.centerY - pointerY) < Math.abs(closest.centerY - pointerY)
-      ? anchor
-      : closest
-  );
-  if (focusedIndex === null || candidate.index === focusedIndex) return candidate.index;
-
-  const focusedPosition = anchors.findIndex((anchor) => anchor.index === focusedIndex);
-  const candidatePosition = anchors.findIndex((anchor) => anchor.index === candidate.index);
-  if (focusedPosition < 0 || candidatePosition < 0) return candidate.index;
-  if (Math.abs(candidatePosition - focusedPosition) > 1) return candidate.index;
-
-  const focused = anchors[focusedPosition];
-  const boundary = (focused.centerY + candidate.centerY) / 2;
-  const hysteresis = 4;
-  if (candidatePosition > focusedPosition && pointerY < boundary + hysteresis) {
-    return focused.index;
-  }
-  if (candidatePosition < focusedPosition && pointerY > boundary - hysteresis) {
-    return focused.index;
-  }
-  return candidate.index;
-}
-
-function anchorRangeTop(anchors: DockHoverAnchor[]): number {
-  if (anchors.length === 1) return anchors[0].top;
-  const first = anchors[0];
-  const second = anchors[1];
-  return Math.min(first.top, first.centerY - (second.centerY - first.centerY) / 2);
-}
-
-function anchorRangeBottom(anchors: DockHoverAnchor[]): number {
-  const last = anchors[anchors.length - 1];
-  if (anchors.length === 1) return last.bottom;
-  const previous = anchors[anchors.length - 2];
-  return Math.max(last.bottom, last.centerY + (last.centerY - previous.centerY) / 2);
-}
-
 function useDynamicIslandShape(options: {
   containerRef: React.RefObject<HTMLElement | null>;
   shapeRef: React.RefObject<SVGSVGElement | null>;
@@ -1197,35 +1021,14 @@ function useDynamicIslandShape(options: {
       return;
     }
 
-    const surfaces = [-2, -1, 0, 1, 2]
-      .map((offset) => {
-        const index = options.focusedIndex! + offset;
-        if (index < 0) return null;
-        const entry = container.querySelector<HTMLElement>(
-          `[data-docksnip-entry-index="${index}"]`
-        );
-        const surface =
-          entry?.querySelector<HTMLElement>(
-            ".justsnap-dock-image-button, .justsnap-dock-folder-button"
-          ) ?? entry;
-        return surface
-          ? {
-              offset,
-              surface,
-              influence: dockInfluence(index, options.focusedIndex)
-            }
-          : null;
-      })
-      .filter(
-        (
-          item
-        ): item is {
-          offset: number;
-          surface: HTMLElement;
-          influence: number;
-        } => Boolean(item)
-      );
-    if (surfaces.length === 0) {
+    const focusedEntry = container.querySelector<HTMLElement>(
+      `[data-docksnip-entry-index="${options.focusedIndex}"]`
+    );
+    const focusedSurface =
+      focusedEntry?.querySelector<HTMLElement>(
+        ".justsnap-dock-image-button, .justsnap-dock-folder-button"
+      ) ?? focusedEntry;
+    if (!focusedSurface) {
       shape.dataset.visible = "false";
       return;
     }
@@ -1239,9 +1042,8 @@ function useDynamicIslandShape(options: {
         if (
           disposed ||
           !container.isConnected ||
-          surfaces.some(
-            ({ surface }) => !surface.isConnected || !container.contains(surface)
-          )
+          !focusedSurface.isConnected ||
+          !container.contains(focusedSurface)
         ) {
           if (!disposed) shape.dataset.visible = "false";
           return;
@@ -1257,31 +1059,23 @@ function useDynamicIslandShape(options: {
             getComputedStyle(container).getPropertyValue("--justsnap-rail-surface")
           ) || 74;
         const baselineLeft = containerRect.width - railSurfaceWidth;
-        const regions = surfaces
-          .map(({ surface, influence }) => {
-            const rect = surface.getBoundingClientRect();
-            const padding = 8 + influence * 4;
-            const left = rect.left - padding - containerRect.left;
-            const top = rect.top - padding - containerRect.top;
-            const bottom = rect.bottom + padding - containerRect.top;
-            const protrusion = Math.max(0, baselineLeft - left);
-            const regionHeight = Math.max(0, bottom - top);
-            if (protrusion <= 0 || regionHeight <= 0) return null;
-            const curve = Math.round(
-              Math.max(
-                12,
-                Math.min(48, Math.max(protrusion * 0.45, regionHeight * 0.32))
-              )
-            );
-            return {
-              left,
-              top,
-              bottom,
-              curve,
-              outerCurve: 8 + padding
-            };
-          })
-          .filter((region): region is NonNullable<typeof region> => Boolean(region));
+        const rect = focusedSurface.getBoundingClientRect();
+        const padding = 12;
+        const left = rect.left - padding - containerRect.left;
+        const top = rect.top - padding - containerRect.top;
+        const bottom = rect.bottom + padding - containerRect.top;
+        const protrusion = Math.max(0, baselineLeft - left);
+        const regionHeight = Math.max(0, bottom - top);
+        const curve = Math.round(
+          Math.max(
+            12,
+            Math.min(48, Math.max(protrusion * 0.45, regionHeight * 0.32))
+          )
+        );
+        const regions =
+          protrusion > 0 && regionHeight > 0
+            ? [{ left, top, bottom, curve, outerCurve: 20 }]
+            : [];
         const path = shape.querySelector<SVGPathElement>(
           ".justsnap-dynamic-island-contour"
         );
@@ -1308,7 +1102,7 @@ function useDynamicIslandShape(options: {
     updateShape();
     const resizeObserver = new ResizeObserver(updateShape);
     resizeObserver.observe(container);
-    surfaces.forEach(({ surface }) => resizeObserver.observe(surface));
+    resizeObserver.observe(focusedSurface);
     window.addEventListener("resize", updateShape);
 
     return () => {
