@@ -72,15 +72,6 @@ function blobsRemovedByMutation(library: LibraryState, mutation: LibraryMutation
     const ids = new Set(group.captureIds);
     return library.captures.filter((capture) => ids.has(capture.id)).map((capture) => capture.imageBlobKey);
   }
-  if (mutation.type === "delete_dock") {
-    const dock = library.docks.find((entry) => entry.id === mutation.dockId);
-    if (!dock) return [];
-    const captureIds = new Set(dock.order.filter((item) => item.kind === "capture").map((item) => item.id));
-    const groupIds = new Set(dock.order.filter((item) => item.kind === "group").map((item) => item.id));
-    for (const group of library.groups) {
-      if (groupIds.has(group.id)) group.captureIds.forEach((id) => captureIds.add(id));
-    }
-    return library.captures.filter((capture) => captureIds.has(capture.id)).map((capture) => capture.imageBlobKey);
-  }
+  if (mutation.type === "clear_library") return library.captures.map((capture) => capture.imageBlobKey);
   return [];
 }

@@ -8,10 +8,8 @@ import type {
   RailOrderItem
 } from "./types";
 
-export const MAX_DOCK_ITEMS = 6;
-
 type LibraryInput = Pick<LibraryState, "captures" | "groups"> &
-  Partial<Pick<LibraryState, "docks" | "activeDockId" | "hasSeenDockOverflow" | "lastAutoCreatedDockId" | "railOrder">>;
+  Partial<Pick<LibraryState, "docks" | "activeDockId" | "railOrder">>;
 
 export function normalizeLibrary(input: LibraryInput): LibraryState {
   const captures = uniqueById(input.captures);
@@ -27,64 +25,29 @@ export function normalizeLibrary(input: LibraryInput): LibraryState {
 
   const validItems = topLevelItems(captures, groups);
   const validKeys = new Set(validItems.map(itemKey));
-  const migratingLegacyOrder = !input.docks?.length;
-  const sourceDocks = input.docks?.length
-    ? uniqueById(input.docks)
-    : [legacyDock(input.railOrder ?? [], input.activeDockId)];
+  const sourceDocks = uniqueById(input.docks ?? []);
+  const activeSource = sourceDocks.find((dock) => dock.id === input.activeDockId);
+  const orderedSources = activeSource
+    ? [activeSource, ...sourceDocks.filter((dock) => dock.id !== activeSource.id)]
+    : sourceDocks;
+  const candidates = orderedSources.length
+    ? [...orderedSources.flatMap((dock) => dock.order), ...(input.railOrder ?? [])]
+    : [...(input.railOrder ?? []), ...validItems];
   const seenItems = new Set<string>();
-  const docks: CaptureDock[] = [];
-
-  for (const source of sourceDocks) {
-    const order = source.order.filter((item) => {
-      const key = itemKey(item);
-      if (!validKeys.has(key) || seenItems.has(key)) return false;
-      seenItems.add(key);
-      return true;
-    });
-    const chunks = chunk(order, MAX_DOCK_ITEMS);
-    const firstChunk = chunks.shift() ?? [];
-    docks.push({
-      id: source.id,
-      name: cleanName(source.name, dockName(docks.length)),
-      createdAt: finiteTimestamp(source.createdAt),
-      order: firstChunk
-    });
-    for (const overflow of chunks) {
-      docks.push({
-        id: `${source.id}-overflow-${docks.length + 1}`,
-        name: dockName(docks.length),
-        createdAt: finiteTimestamp(source.createdAt),
-        order: overflow
-      });
-    }
-  }
-
-  if (!docks.length) docks.push(createDock("dock-1", "Dock 1", Date.now()));
-  for (const item of migratingLegacyOrder ? validItems : []) {
-    if (seenItems.has(itemKey(item))) continue;
-    let destination = docks.find((dock) => dock.id === input.activeDockId) ?? docks[docks.length - 1];
-    if (destination.order.length >= MAX_DOCK_ITEMS) {
-      destination = createDock(`dock-recovered-${docks.length + 1}`, dockName(docks.length), Date.now());
-      docks.push(destination);
-    }
-    destination.order.push(item);
-    seenItems.add(itemKey(item));
-  }
-
-  const activeDockId = docks.some((dock) => dock.id === input.activeDockId) ? input.activeDockId! : docks[0].id;
-  const activeDock = docks.find((dock) => dock.id === activeDockId)!;
-  const lastAutoCreatedDockId = docks.some((dock) => dock.id === input.lastAutoCreatedDockId)
-    ? input.lastAutoCreatedDockId
-    : undefined;
+  const order = candidates.filter((item) => {
+    const key = itemKey(item);
+    if (!validKeys.has(key) || seenItems.has(key)) return false;
+    seenItems.add(key);
+    return true;
+  });
+  const dock = createDock(activeSource?.id ?? "dock-1", "Dock", activeSource?.createdAt ?? Date.now(), order);
 
   return {
     captures,
     groups,
-    docks,
-    activeDockId,
-    hasSeenDockOverflow: Boolean(input.hasSeenDockOverflow),
-    ...(lastAutoCreatedDockId ? { lastAutoCreatedDockId } : {}),
-    railOrder: activeDock.order
+    docks: [dock],
+    activeDockId: dock.id,
+    railOrder: dock.order
   };
 }
 
@@ -159,8 +122,6 @@ export function applyLibraryMutation(library: LibraryState, mutation: LibraryMut
       });
     }
     case "ungroup_capture": {
-      const activeDock = dockById(current, current.activeDockId);
-      if (activeDock.order.length >= MAX_DOCK_ITEMS) return current;
       return normalizeLibrary({
         ...current,
         groups: removeCapturesFromGroups(current.groups, [mutation.captureId]),
@@ -190,13 +151,6 @@ export function applyLibraryMutation(library: LibraryState, mutation: LibraryMut
         docks: removeItemFromDocks(current.docks, { kind: "group", id: mutation.groupId })
       });
     }
-    case "rename_group":
-      return normalizeLibrary({
-        ...current,
-        groups: current.groups.map((group) =>
-          group.id === mutation.groupId ? { ...group, name: cleanName(mutation.name, "New folder") } : group
-        )
-      });
     case "create_empty_group": {
       if (current.groups.some((group) => group.id === mutation.groupId)) return current;
       const group: CaptureGroup = {
@@ -211,41 +165,8 @@ export function applyLibraryMutation(library: LibraryState, mutation: LibraryMut
         { groups: [group, ...current.groups] }
       );
     }
-    case "create_dock": {
-      if (current.docks.some((dock) => dock.id === mutation.dockId)) return current;
-      const docks = [...current.docks, createDock(mutation.dockId, mutation.name, mutation.createdAt)];
-      return normalizeLibrary({
-        ...current,
-        docks,
-        activeDockId: mutation.activate === false ? current.activeDockId : mutation.dockId,
-        lastAutoCreatedDockId: undefined
-      });
-    }
-    case "set_active_dock":
-      return current.docks.some((dock) => dock.id === mutation.dockId)
-        ? normalizeLibrary({ ...current, activeDockId: mutation.dockId })
-        : current;
-    case "rename_dock":
-      return normalizeLibrary({
-        ...current,
-        docks: updateDock(current.docks, mutation.dockId, (dock) => ({
-          ...dock,
-          name: cleanName(mutation.name, dock.name)
-        }))
-      });
-    case "delete_dock":
-      return deleteDock(current, mutation.dockId);
-    case "move_item_to_dock": {
-      const destination = current.docks.find((dock) => dock.id === mutation.dockId);
-      if (!destination || destination.order.some((item) => sameItem(item, mutation.item))) return current;
-      if (destination.order.length >= MAX_DOCK_ITEMS) return current;
-      const docks = removeItemFromDocks(current.docks, mutation.item).map((dock) =>
-        dock.id === destination.id ? { ...dock, order: [...dock.order, mutation.item] } : dock
-      );
-      return normalizeLibrary({ ...current, docks });
-    }
-    case "acknowledge_dock_overflow":
-      return normalizeLibrary({ ...current, hasSeenDockOverflow: true, lastAutoCreatedDockId: undefined });
+    case "clear_library":
+      return normalizeLibrary({ captures: [], groups: [], railOrder: [] });
   }
 }
 
@@ -255,8 +176,7 @@ export function addCapture(library: LibraryState, capture: Capture, topLevel = t
   if (!topLevel) {
     return normalizeLibrary({
       ...current,
-      captures,
-      docks: current.docks
+      captures
     });
   }
   return addTopLevelEntity(current, { kind: "capture", id: capture.id }, { captures });
@@ -273,62 +193,12 @@ function addTopLevelEntity(
 ): LibraryState {
   const cleanedDocks = removeItemFromDocks(current.docks, item);
   const active = cleanedDocks.find((dock) => dock.id === current.activeDockId) ?? cleanedDocks[0];
-  if (active.order.length < MAX_DOCK_ITEMS) {
-    return normalizeLibrary({
-      ...current,
-      ...additions,
-      docks: updateDock(cleanedDocks, active.id, (dock) => ({ ...dock, order: [item, ...dock.order] })),
-      activeDockId: active.id
-    });
-  }
-
-  const id = crypto.randomUUID();
-  const dock = createDock(id, dockName(cleanedDocks.length), Date.now());
-  dock.order.push(item);
   return normalizeLibrary({
     ...current,
     ...additions,
-    docks: [...cleanedDocks, dock],
-    activeDockId: dock.id,
-    lastAutoCreatedDockId: dock.id
+    docks: updateDock(cleanedDocks, active.id, (dock) => ({ ...dock, order: [item, ...dock.order] })),
+    activeDockId: active.id
   });
-}
-
-function deleteDock(current: LibraryState, dockId: string): LibraryState {
-  const index = current.docks.findIndex((dock) => dock.id === dockId);
-  if (index < 0) return current;
-  const dock = current.docks[index];
-  if (current.docks.length === 1) {
-    const cleared = deleteItems(current, dock.order);
-    return normalizeLibrary({ ...cleared, docks: [{ ...dock, order: [] }], activeDockId: dock.id });
-  }
-  const nextLibrary = deleteItems(current, dock.order);
-  const docks = nextLibrary.docks.filter((entry) => entry.id !== dockId);
-  const nextActive = current.activeDockId === dockId
-    ? docks[Math.min(index, docks.length - 1)].id
-    : current.activeDockId;
-  return normalizeLibrary({ ...nextLibrary, docks, activeDockId: nextActive });
-}
-
-function deleteItems(current: LibraryState, items: DockOrderItem[]): LibraryState {
-  const captureIds = new Set(items.filter((item) => item.kind === "capture").map((item) => item.id));
-  const groupIds = new Set(items.filter((item) => item.kind === "group").map((item) => item.id));
-  for (const group of current.groups) {
-    if (groupIds.has(group.id)) group.captureIds.forEach((id) => captureIds.add(id));
-  }
-  return {
-    ...current,
-    captures: current.captures.filter((capture) => !captureIds.has(capture.id)),
-    groups: current.groups.filter((group) => !groupIds.has(group.id)),
-    docks: current.docks.map((dock) => ({
-      ...dock,
-      order: dock.order.filter((item) => !items.some((removed) => sameItem(item, removed)))
-    }))
-  };
-}
-
-function legacyDock(order: RailOrderItem[], activeDockId?: string): CaptureDock {
-  return createDock(activeDockId || "dock-1", "Dock 1", Date.now(), order);
 }
 
 function createDock(id: string, name: string, createdAt: number, order: DockOrderItem[] = []): CaptureDock {
@@ -348,10 +218,6 @@ function withActiveOrder(current: LibraryState, order: DockOrderItem[]): Library
     ...current,
     docks: updateDock(current.docks, current.activeDockId, (dock) => ({ ...dock, order }))
   };
-}
-
-function dockById(library: LibraryState, id: string): CaptureDock {
-  return library.docks.find((dock) => dock.id === id) ?? library.docks[0];
 }
 
 function updateDock(docks: CaptureDock[], id: string, update: (dock: CaptureDock) => CaptureDock): CaptureDock[] {
@@ -406,10 +272,6 @@ function sameItem(first: DockOrderItem, second: DockOrderItem): boolean {
   return first.kind === second.kind && first.id === second.id;
 }
 
-function dockName(index: number): string {
-  return `Dock ${index + 1}`;
-}
-
 function cleanName(value: string, fallback: string): string {
   const name = value.trim().replace(/\s+/g, " ").slice(0, 120);
   return name || fallback;
@@ -417,12 +279,6 @@ function cleanName(value: string, fallback: string): string {
 
 function finiteTimestamp(value: number): number {
   return Number.isFinite(value) ? value : Date.now();
-}
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
-  return chunks;
 }
 
 function uniqueById<T extends { id: string }>(items: T[]): T[] {

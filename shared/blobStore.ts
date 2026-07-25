@@ -27,7 +27,7 @@ export async function listImageBlobKeys(): Promise<string[]> {
   );
 }
 
-export async function captureImageToBlob(image: CaptureImage, type = "image/png"): Promise<Blob> {
+export async function captureImageToBlob(image: CaptureImage): Promise<Blob> {
   const response = await fetch(image.dataUrl);
   const blob = await response.blob();
   return blob;
@@ -64,7 +64,13 @@ function runStoreRequest<T>(
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(STORE_NAME, mode);
     const request = operation(transaction.objectStore(STORE_NAME));
+    let result: T;
     request.onerror = () => reject(request.error ?? new Error("DockSnip image store request failed."));
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      result = request.result;
+    };
+    transaction.onerror = () => reject(transaction.error ?? new Error("DockSnip image store transaction failed."));
+    transaction.onabort = () => reject(transaction.error ?? new Error("DockSnip image store transaction was cancelled."));
+    transaction.oncomplete = () => resolve(result);
   });
 }

@@ -6,12 +6,10 @@ import type {
   BackgroundResponse,
   Capture,
   CaptureAddTarget,
-  CaptureGroup,
   CaptureImage,
   CaptureSelectionResult,
   ContentMessage,
   LibraryMutation,
-  LibraryState,
   RailOrderItem
 } from "../shared/types";
 import { insertCapture, mutateLibrary, readLibrary, updateLibrary } from "./libraryRepository";
@@ -80,7 +78,7 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
   });
 });
 
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener(async (_tabId, changeInfo, tab) => {
   await ensureRuntimeState();
   if (!railFollowEnabled || changeInfo.status !== "complete" || !tab.active) return;
   void showOnlyOnTab(tab, messageForTab()).catch(() => undefined);
@@ -103,7 +101,12 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 chrome.runtime.onMessage.addListener((request: unknown, sender, sendResponse) => {
   const validatedRequest = validateBackgroundRequest(request, sender);
   if (!validatedRequest) return false;
-  handleMessage(validatedRequest, sender).then(sendResponse);
+  void handleMessage(validatedRequest, sender).then(sendResponse, (error) => {
+    sendResponse({
+      ok: false,
+      error: error instanceof Error ? error.message : "DockSnip request failed."
+    } satisfies BackgroundResponse);
+  });
   return true;
 });
 
@@ -220,13 +223,13 @@ async function prepareCaptureSession(tab: chrome.tabs.Tab | undefined, addTarget
 
 async function showOnlyOnTab(tab: chrome.tabs.Tab, message: ContentMessage = { type: "JUSTSNAP_SHOW_RAIL" }): Promise<void> {
   if (!tab.id || isRestrictedTabUrl(tab.url)) {
-    if (activeRailTabId) await sendMessage(activeRailTabId, { type: "JUSTSNAP_CLOSE_RAIL" }).catch(() => undefined);
+    if (activeRailTabId) await sendMessageIfPresent(activeRailTabId, { type: "JUSTSNAP_CLOSE_RAIL" });
     activeRailTabId = undefined;
     await persistRuntimeState();
     return;
   }
   if (activeRailTabId && activeRailTabId !== tab.id) {
-    await sendMessage(activeRailTabId, { type: "JUSTSNAP_CLOSE_RAIL" }).catch(() => undefined);
+    await sendMessageIfPresent(activeRailTabId, { type: "JUSTSNAP_CLOSE_RAIL" });
   }
   activeRailTabId = tab.id;
   if (captureSession) captureSession.tabId = tab.id;
@@ -239,7 +242,7 @@ async function closeRailEverywhere(): Promise<void> {
   captureSession = undefined;
   activeRailTabId = undefined;
   const tabs = await chrome.tabs.query({});
-  await Promise.all(tabs.map((tab) => (tab.id ? sendMessage(tab.id, { type: "JUSTSNAP_CLOSE_RAIL" }).catch(() => undefined) : undefined)));
+  await Promise.all(tabs.map((tab) => (tab.id ? sendMessageIfPresent(tab.id, { type: "JUSTSNAP_CLOSE_RAIL" }) : undefined)));
   await persistRuntimeState();
 }
 
@@ -528,6 +531,10 @@ async function sendMessage(tabId: number, message: ContentMessage): Promise<void
   }
 }
 
+async function sendMessageIfPresent(tabId: number, message: ContentMessage): Promise<void> {
+  await chrome.tabs.sendMessage<ContentMessage>(tabId, message).catch(() => undefined);
+}
+
 function isRestrictedTabUrl(url: string | undefined): boolean {
   if (!url) return true;
   return /^(chrome|chrome-extension|edge|about|devtools):\/\//i.test(url);
@@ -654,37 +661,13 @@ function parseLibraryMutation(value: unknown): LibraryMutation | undefined {
     const groupId = parseId(value.groupId);
     return groupId ? { type: value.type, groupId } : undefined;
   }
-  if (value.type === "rename_group") {
-    const groupId = parseId(value.groupId);
-    return groupId && isBoundedString(value.name, 120) ? { type: value.type, groupId, name: value.name } : undefined;
-  }
   if (value.type === "create_empty_group") {
     const groupId = parseId(value.groupId);
     return groupId && isBoundedString(value.name, 120) && isFiniteNumber(value.createdAt)
       ? { type: value.type, groupId, name: value.name, createdAt: value.createdAt }
       : undefined;
   }
-  if (value.type === "create_dock") {
-    const dockId = parseId(value.dockId);
-    return dockId && isBoundedString(value.name, 120) && isFiniteNumber(value.createdAt) &&
-      (value.activate === undefined || typeof value.activate === "boolean")
-      ? { type: value.type, dockId, name: value.name, createdAt: value.createdAt, ...(value.activate !== undefined ? { activate: value.activate } : {}) }
-      : undefined;
-  }
-  if (value.type === "set_active_dock" || value.type === "delete_dock") {
-    const dockId = parseId(value.dockId);
-    return dockId ? { type: value.type, dockId } : undefined;
-  }
-  if (value.type === "rename_dock") {
-    const dockId = parseId(value.dockId);
-    return dockId && isBoundedString(value.name, 120) ? { type: value.type, dockId, name: value.name } : undefined;
-  }
-  if (value.type === "move_item_to_dock") {
-    const item = parseOrderItem(value.item);
-    const dockId = parseId(value.dockId);
-    return item && dockId ? { type: value.type, item, dockId } : undefined;
-  }
-  if (value.type === "acknowledge_dock_overflow") return { type: value.type };
+  if (value.type === "clear_library") return { type: value.type };
   return undefined;
 }
 

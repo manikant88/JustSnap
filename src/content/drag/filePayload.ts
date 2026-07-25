@@ -1,5 +1,3 @@
-import type { Capture } from "../../../shared/types";
-
 export async function copyFilesToClipboard(files: File[]): Promise<void> {
   if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") return;
   try {
@@ -10,7 +8,7 @@ export async function copyFilesToClipboard(files: File[]): Promise<void> {
   }
 }
 
-export function captureFileForDrag(capture: Capture, blob: Blob | undefined): File | undefined {
+export function captureFileForDrag(blob: Blob | undefined): File | undefined {
   if (!blob) return undefined;
   return new File([blob], "image.png", { type: blob.type || "image/png" });
 }

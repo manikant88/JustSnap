@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { BackgroundRequest, BackgroundResponse, LibraryState } from "../../shared/types";
 import "./styles.css";

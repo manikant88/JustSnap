@@ -1,5 +1,3 @@
-import type { Capture } from "../../../shared/types";
-
 export type PageInsertEnvironment = {
   currentOrigin: () => string;
   isDockSnipNode: (node: Node) => boolean;
@@ -7,7 +5,6 @@ export type PageInsertEnvironment = {
 
 export async function placeFilesInCurrentPage(
   files: File[],
-  captures: Capture[],
   env: PageInsertEnvironment,
   preferredTarget?: Element
 ): Promise<{ ok: true } | { ok: false; error: string }> {

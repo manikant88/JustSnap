@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { addCapture, applyLibraryMutation, MAX_DOCK_ITEMS, normalizeLibrary } from "../shared/libraryModel";
+import { addCapture, applyLibraryMutation, normalizeLibrary } from "../shared/libraryModel";
 import { parseStoredCaptureSession } from "../shared/sessionModel";
-import type { Capture, LibraryState } from "../shared/types";
+import type { Capture } from "../shared/types";
 
 const capture = (id: string): Capture => ({
   id,
@@ -12,11 +12,11 @@ const capture = (id: string): Capture => ({
   imageBlobKey: `capture-${id}`
 });
 
-const base: LibraryState = {
+const base = normalizeLibrary({
   captures: [capture("a"), capture("b"), capture("c")],
   groups: [],
   railOrder: [{ kind: "capture", id: "a" }, { kind: "capture", id: "b" }, { kind: "capture", id: "c" }]
-};
+});
 
 {
   const grouped = applyLibraryMutation(base, {
@@ -44,7 +44,7 @@ const base: LibraryState = {
 }
 
 {
-  const corrupted: LibraryState = {
+  const corrupted = {
     captures: [capture("a"), capture("a"), capture("b")],
     groups: [
       { id: "g1", name: "One", createdAt: 1, captureIds: ["a", "missing"] },
@@ -73,59 +73,85 @@ const base: LibraryState = {
 
 {
   let library = normalizeLibrary({ captures: [], groups: [], railOrder: [] });
-  for (let index = 0; index < MAX_DOCK_ITEMS; index += 1) {
+  for (let index = 0; index < 20; index += 1) {
     library = addCapture(library, capture(`item-${index}`));
   }
   assert.equal(library.docks.length, 1);
-  assert.equal(library.docks[0].order.length, MAX_DOCK_ITEMS);
-
-  library = addCapture(library, capture("overflow"));
-  assert.equal(library.docks.length, 2);
-  assert.equal(library.activeDockId, library.docks[1].id);
-  assert.deepEqual(library.docks[1].order, [{ kind: "capture", id: "overflow" }]);
-  assert.equal(library.lastAutoCreatedDockId, library.docks[1].id);
+  assert.equal(library.docks[0].order.length, 20);
+  assert.deepEqual(library.railOrder.slice(0, 2), [
+    { kind: "capture", id: "item-19" },
+    { kind: "capture", id: "item-18" }
+  ]);
 }
 
 {
-  let library = normalizeLibrary({ captures: [capture("a")], groups: [], railOrder: [{ kind: "capture", id: "a" }] });
-  library = applyLibraryMutation(library, {
-    type: "create_dock",
-    dockId: "workspace",
-    name: "Workspace",
-    createdAt: 2
-  });
-  assert.equal(library.docks.length, 2);
-  assert.equal(library.activeDockId, "workspace");
-  assert.equal(library.docks[0].order.length, 1);
-  assert.equal(library.docks[1].order.length, 0);
-}
-
-{
-  const captures = Array.from({ length: MAX_DOCK_ITEMS + 1 }, (_, index) => capture(`full-${index}`));
-  const fullOrder = captures.slice(0, MAX_DOCK_ITEMS).map((entry) => ({ kind: "capture" as const, id: entry.id }));
-  let library = normalizeLibrary({
+  const captures = [capture("a"), capture("b"), capture("c"), capture("d")];
+  const library = normalizeLibrary({
     captures,
-    groups: [{ id: "group", name: "Folder", createdAt: 1, captureIds: [] }],
+    groups: [],
     docks: [
-      { id: "full", name: "Full", createdAt: 1, order: fullOrder },
-      { id: "source", name: "Source", createdAt: 2, order: [{ kind: "capture", id: captures[MAX_DOCK_ITEMS].id }, { kind: "group", id: "group" }] }
+      {
+        id: "older",
+        name: "Older",
+        createdAt: 1,
+        order: [{ kind: "capture", id: "a" }, { kind: "capture", id: "b" }]
+      },
+      {
+        id: "active",
+        name: "Active",
+        createdAt: 2,
+        order: [{ kind: "capture", id: "c" }, { kind: "capture", id: "a" }]
+      }
     ],
-    activeDockId: "source"
+    activeDockId: "active",
+    railOrder: [{ kind: "capture", id: "d" }]
   });
-  const unchanged = applyLibraryMutation(library, {
-    type: "move_item_to_dock",
-    item: { kind: "capture", id: captures[MAX_DOCK_ITEMS].id },
-    dockId: "full"
-  });
-  assert.deepEqual(unchanged.docks, library.docks);
+  assert.equal(library.docks.length, 1);
+  assert.equal(library.activeDockId, "active");
+  assert.deepEqual(library.railOrder, [
+    { kind: "capture", id: "c" },
+    { kind: "capture", id: "a" },
+    { kind: "capture", id: "b" },
+    { kind: "capture", id: "d" }
+  ]);
+}
 
-  library = applyLibraryMutation(library, {
-    type: "add_capture_to_group",
-    captureId: captures[MAX_DOCK_ITEMS].id,
-    groupId: "group"
+{
+  const cleared = applyLibraryMutation(base, { type: "clear_library" });
+  assert.deepEqual(cleared.captures, []);
+  assert.deepEqual(cleared.groups, []);
+  assert.deepEqual(cleared.railOrder, []);
+  assert.equal(cleared.docks.length, 1);
+  assert.deepEqual(cleared.docks[0].order, []);
+}
+
+{
+  const grouped = applyLibraryMutation(base, {
+    type: "create_group",
+    groupId: "delete-me",
+    name: "Temporary",
+    createdAt: 2,
+    sourceCaptureId: "b",
+    targetCaptureId: "a"
   });
-  assert.deepEqual(library.groups.find((group) => group.id === "group")?.captureIds, [captures[MAX_DOCK_ITEMS].id]);
-  assert.equal(library.docks.find((dock) => dock.id === "source")?.order.length, 1);
+  const deleted = applyLibraryMutation(grouped, { type: "delete_group", groupId: "delete-me" });
+  assert.deepEqual(deleted.captures.map((entry) => entry.id), ["c"]);
+  assert.deepEqual(deleted.groups, []);
+  assert.deepEqual(deleted.railOrder, [{ kind: "capture", id: "c" }]);
+}
+
+{
+  const moved = applyLibraryMutation(base, {
+    type: "move_rail_item",
+    item: { kind: "capture", id: "c" },
+    target: { kind: "capture", id: "a" },
+    position: "insert-before"
+  });
+  assert.deepEqual(moved.railOrder, [
+    { kind: "capture", id: "c" },
+    { kind: "capture", id: "a" },
+    { kind: "capture", id: "b" }
+  ]);
 }
 
 {
@@ -134,6 +160,7 @@ const base: LibraryState = {
   assert.equal(pending.captures.length, 1);
   assert.equal(pending.docks[0].order.length, 0);
   assert.equal(pending.railOrder.length, 0);
+  assert.equal(normalizeLibrary(pending).railOrder.length, 0);
 }
 
 console.log("DockSnip domain tests passed.");

@@ -33,8 +33,6 @@ export type LibraryState = {
   groups: CaptureGroup[];
   docks: CaptureDock[];
   activeDockId: string;
-  hasSeenDockOverflow: boolean;
-  lastAutoCreatedDockId?: string;
   /** Active dock order. Kept as a compatibility view for existing UI clients. */
   railOrder: RailOrderItem[];
 };
@@ -47,14 +45,8 @@ export type LibraryMutation =
   | { type: "ungroup_capture"; captureId: string }
   | { type: "delete_capture"; captureId: string }
   | { type: "delete_group"; groupId: string }
-  | { type: "rename_group"; groupId: string; name: string }
   | { type: "create_empty_group"; groupId: string; name: string; createdAt: number }
-  | { type: "create_dock"; dockId: string; name: string; createdAt: number; activate?: boolean }
-  | { type: "set_active_dock"; dockId: string }
-  | { type: "rename_dock"; dockId: string; name: string }
-  | { type: "delete_dock"; dockId: string }
-  | { type: "move_item_to_dock"; item: DockOrderItem; dockId: string }
-  | { type: "acknowledge_dock_overflow" };
+  | { type: "clear_library" };
 
 export type CaptureImage = {
   dataUrl: string;

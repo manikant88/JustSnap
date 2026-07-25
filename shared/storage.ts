@@ -6,10 +6,14 @@ const GROUPS_KEY = "justsnap_groups";
 const RAIL_ORDER_KEY = "justsnap_rail_order";
 const DOCKS_KEY = "docksnip_docks";
 const ACTIVE_DOCK_KEY = "docksnip_active_dock";
-const DOCK_OVERFLOW_SEEN_KEY = "docksnip_dock_overflow_seen";
-const LAST_AUTO_DOCK_KEY = "docksnip_last_auto_dock";
 const EVENTS_KEY = "justsnap_events";
 const PENDING_KEY = "justsnap_pending_usages";
+const LEGACY_STORAGE_KEYS = [
+  EVENTS_KEY,
+  PENDING_KEY,
+  "docksnip_dock_overflow_seen",
+  "docksnip_last_auto_dock"
+];
 let legacyTrackingCleared = false;
 
 export async function getLibrary(): Promise<LibraryState> {
@@ -18,9 +22,7 @@ export async function getLibrary(): Promise<LibraryState> {
     GROUPS_KEY,
     RAIL_ORDER_KEY,
     DOCKS_KEY,
-    ACTIVE_DOCK_KEY,
-    DOCK_OVERFLOW_SEEN_KEY,
-    LAST_AUTO_DOCK_KEY
+    ACTIVE_DOCK_KEY
   ]);
   const rawCaptures = Array.isArray(result[CAPTURES_KEY]) ? result[CAPTURES_KEY] : [];
   const rawGroups = Array.isArray(result[GROUPS_KEY]) ? result[GROUPS_KEY] : [];
@@ -34,7 +36,7 @@ export async function getLibrary(): Promise<LibraryState> {
     await chrome.storage.local.set({ [CAPTURES_KEY]: captures, [GROUPS_KEY]: groups });
   }
   if (!legacyTrackingCleared) {
-    await chrome.storage.local.remove([EVENTS_KEY, PENDING_KEY]);
+    await chrome.storage.local.remove(LEGACY_STORAGE_KEYS);
     legacyTrackingCleared = true;
   }
   const rawDocks = Array.isArray(result[DOCKS_KEY]) ? result[DOCKS_KEY] : [];
@@ -43,11 +45,9 @@ export async function getLibrary(): Promise<LibraryState> {
     groups,
     docks: rawDocks.map(parseDock).filter((dock): dock is CaptureDock => Boolean(dock)),
     activeDockId: isId(result[ACTIVE_DOCK_KEY]) ? result[ACTIVE_DOCK_KEY] : undefined,
-    hasSeenDockOverflow: result[DOCK_OVERFLOW_SEEN_KEY] === true,
-    lastAutoCreatedDockId: isId(result[LAST_AUTO_DOCK_KEY]) ? result[LAST_AUTO_DOCK_KEY] : undefined,
     railOrder: rawOrder.map(parseOrderItem).filter((item): item is RailOrderItem => Boolean(item))
   });
-  if (!rawDocks.length) await saveLibrary(library);
+  if (rawDocks.length !== 1) await saveLibrary(library);
   return library;
 }
 
@@ -58,9 +58,7 @@ export async function saveLibrary(library: LibraryState): Promise<void> {
     [GROUPS_KEY]: normalized.groups,
     [RAIL_ORDER_KEY]: normalized.railOrder,
     [DOCKS_KEY]: normalized.docks,
-    [ACTIVE_DOCK_KEY]: normalized.activeDockId,
-    [DOCK_OVERFLOW_SEEN_KEY]: normalized.hasSeenDockOverflow,
-    [LAST_AUTO_DOCK_KEY]: normalized.lastAutoCreatedDockId ?? null
+    [ACTIVE_DOCK_KEY]: normalized.activeDockId
   });
 }
 
