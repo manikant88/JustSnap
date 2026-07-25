@@ -19,7 +19,7 @@ export const styles = `
   .justsnap-rail {
     position: fixed;
     top: 50%;
-    right: 14px;
+    right: 0;
     z-index: 2147483646;
     width: max(56px, var(--justsnap-rail-surface, 74px));
     height: auto;
@@ -29,44 +29,21 @@ export const styles = `
     align-items: flex-end;
     justify-content: center;
     color: rgba(246, 250, 255, 0.92);
-    background: var(--docksnip-glass-background);
-    border: 1px solid var(--docksnip-glass-border);
-    border-radius: 16px;
-    box-shadow: var(--docksnip-glass-shadow);
+    background: #050506;
+    border: 0;
+    border-radius: 28px 0 0 28px;
+    box-shadow:
+      inset 1px 0 0 rgba(255, 255, 255, 0.1),
+      -12px 0 30px rgba(0, 0, 0, 0.24);
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     overflow: visible;
     translate: 0 -50%;
-    backdrop-filter: blur(26px) saturate(190%) brightness(1.08);
-    -webkit-backdrop-filter: blur(26px) saturate(190%) brightness(1.08);
     pointer-events: auto;
     animation: docksnip-surface-enter 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
     transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 140ms ease;
   }
   .justsnap-rail-expanded {
     max-height: none;
-  }
-  .justsnap-rail::before,
-  .justsnap-rail::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    pointer-events: none;
-  }
-  .justsnap-rail::before {
-    z-index: 0;
-    background:
-      linear-gradient(90deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.035) 24%, rgba(255, 255, 255, 0) 56%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 18%, rgba(255, 255, 255, 0.06) 100%);
-    opacity: 0.82;
-    mix-blend-mode: screen;
-  }
-  .justsnap-rail::after {
-    z-index: 0;
-    box-shadow:
-      inset 0 0 0 1px rgba(255, 255, 255, 0.1),
-      inset 0 0 28px rgba(255, 255, 255, 0.045),
-      inset 0 -18px 30px rgba(0, 0, 0, 0.13);
   }
   .justsnap-rail-control-slot {
     position: relative;
@@ -346,6 +323,27 @@ export const styles = `
     outline: none;
     pointer-events: none;
   }
+  .justsnap-dynamic-island-shape {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    opacity: 0;
+    overflow: visible;
+    pointer-events: none;
+    transition: opacity 70ms ease-out;
+  }
+  .justsnap-dynamic-island-shape[data-visible="true"] {
+    opacity: 1;
+  }
+  .justsnap-dynamic-island-contour {
+    fill: #050506;
+    filter:
+      drop-shadow(-12px 0 26px rgba(0, 0, 0, 0.2))
+      drop-shadow(1px 0 rgba(255, 255, 255, 0.08));
+    will-change: d;
+  }
   .justsnap-dock-slot {
     position: relative;
     width: 52px;
@@ -387,7 +385,7 @@ export const styles = `
     width: 52px;
     height: 52px;
     border: 0;
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 0;
     overflow: hidden;
     background: rgba(24, 30, 39, 0.56);
@@ -464,7 +462,7 @@ export const styles = `
     width: 52px;
     height: 52px;
     border: 1px solid rgba(255, 255, 255, 0.08) !important;
-    border-radius: 10px !important;
+    border-radius: 8px !important;
     padding: 4px !important;
     overflow: hidden;
     background:
@@ -908,7 +906,8 @@ export const styles = `
     .justsnap-capture-toolbar,
     .justsnap-toolbar-notice,
     .justsnap-group-flyout,
-    .justsnap-dock-delete-confirm {
+    .justsnap-dock-delete-confirm,
+    .justsnap-dynamic-island-shape {
       animation: none;
       transition: none;
     }

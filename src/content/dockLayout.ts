@@ -8,9 +8,150 @@ export function dockInfluence(index: number, hoveredIndex: number | null): numbe
   if (hoveredIndex === null) return 0;
   const distance = Math.abs(index - hoveredIndex);
   if (distance === 0) return 1;
-  if (distance === 1) return 0.28;
-  if (distance === 2) return 0.12;
+  if (distance === 1) return 0.7;
+  if (distance === 2) return 0.4;
   return 0;
+}
+
+export type DynamicIslandRegion = {
+  left: number;
+  top: number;
+  bottom: number;
+  curve: number;
+  outerCurve?: number;
+};
+
+export function dynamicIslandPath(options: {
+  width: number;
+  height: number;
+  baselineLeft: number;
+  regions: DynamicIslandRegion[];
+}): string {
+  const width = finiteNumber(options.width);
+  const height = finiteNumber(options.height);
+  const baselineLeft = clamp(finiteNumber(options.baselineLeft), 0, width);
+  if (width <= 0 || height <= 0 || options.regions.length === 0) return "";
+
+  const regions = normalizeIslandRegions(
+    options.regions,
+    width,
+    height,
+    baselineLeft
+  );
+  if (regions.length === 0) return "";
+
+  const breakpoints = Array.from(
+    new Set([0, height, ...regions.flatMap((region) => [region.top, region.bottom])])
+  ).sort((a, b) => a - b);
+  const segments: IslandBoundarySegment[] = [];
+
+  for (let index = 0; index < breakpoints.length - 1; index += 1) {
+    const top = breakpoints[index];
+    const bottom = breakpoints[index + 1];
+    if (bottom - top < 0.1) continue;
+
+    const midpoint = top + (bottom - top) / 2;
+    const activeRegions = regions.filter(
+      (region) => midpoint >= region.top && midpoint <= region.bottom
+    );
+    const left = activeRegions.reduce(
+      (minimum, region) => Math.min(minimum, region.left),
+      baselineLeft
+    );
+    const edgeRegions = activeRegions.filter(
+      (region) => Math.abs(region.left - left) < 0.1
+    );
+    const joinCurve =
+      edgeRegions.length > 0
+        ? edgeRegions.reduce(
+            (maximum, region) => Math.max(maximum, region.curve),
+            0
+          )
+        : 20;
+    const outerCurve =
+      edgeRegions.length > 0
+        ? edgeRegions.reduce(
+            (maximum, region) => Math.max(maximum, region.outerCurve),
+            0
+          )
+        : 20;
+    const previous = segments.at(-1);
+
+    if (previous && Math.abs(previous.left - left) < 0.1) {
+      previous.bottom = bottom;
+      previous.joinCurve = Math.max(previous.joinCurve, joinCurve);
+      previous.outerCurve = Math.max(previous.outerCurve, outerCurve);
+    } else {
+      segments.push({ top, bottom, left, joinCurve, outerCurve });
+    }
+  }
+
+  if (segments.length === 0) return "";
+
+  const commands = [
+    `M ${pathNumber(width)} 0`,
+    `H ${pathNumber(segments[0].left)}`
+  ];
+
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    const current = segments[index];
+    const next = segments[index + 1];
+    const transitionY = current.bottom;
+    const horizontalDistance = Math.abs(next.left - current.left);
+    const expandsOutward = next.left < current.left;
+    let firstRadius = Math.min(
+      expandsOutward ? next.joinCurve : current.outerCurve,
+      (current.bottom - current.top) / 2
+    );
+    let secondRadius = Math.min(
+      expandsOutward ? next.outerCurve : current.joinCurve,
+      (next.bottom - next.top) / 2
+    );
+    const radiusTotal = firstRadius + secondRadius;
+    if (radiusTotal > horizontalDistance && radiusTotal > 0) {
+      const radiusScale = horizontalDistance / radiusTotal;
+      firstRadius *= radiusScale;
+      secondRadius *= radiusScale;
+    }
+
+    if (horizontalDistance < 0.1) {
+      commands.push(
+        `V ${pathNumber(transitionY)}`,
+        `H ${pathNumber(next.left)}`
+      );
+      continue;
+    }
+
+    commands.push(`V ${pathNumber(transitionY - firstRadius)}`);
+    if (expandsOutward) {
+      commands.push(
+        `Q ${pathNumber(current.left)} ${pathNumber(transitionY)} ${pathNumber(
+          current.left - firstRadius
+        )} ${pathNumber(transitionY)}`,
+        `H ${pathNumber(next.left + secondRadius)}`,
+        `Q ${pathNumber(next.left)} ${pathNumber(transitionY)} ${pathNumber(
+          next.left
+        )} ${pathNumber(transitionY + secondRadius)}`
+      );
+    } else {
+      commands.push(
+        `Q ${pathNumber(current.left)} ${pathNumber(transitionY)} ${pathNumber(
+          current.left + firstRadius
+        )} ${pathNumber(transitionY)}`,
+        `H ${pathNumber(next.left - secondRadius)}`,
+        `Q ${pathNumber(next.left)} ${pathNumber(transitionY)} ${pathNumber(
+          next.left
+        )} ${pathNumber(transitionY + secondRadius)}`
+      );
+    }
+  }
+
+  commands.push(
+    `V ${pathNumber(height)}`,
+    `H ${pathNumber(width)}`,
+    "Z"
+  );
+  return commands.join(" ");
 }
 
 export function dockLayoutForCount(count: number, maxHeight = railLibraryHeight()): DockLayout {
@@ -144,6 +285,49 @@ function withDockSurfaceWidth(layout: Omit<DockLayout, "surfaceWidth">): DockLay
 function railLibraryHeight(): number {
   const railHeight = Math.min(window.innerHeight * 0.9, window.innerHeight - 24);
   return Math.max(0, railHeight);
+}
+
+type IslandBoundarySegment = {
+  top: number;
+  bottom: number;
+  left: number;
+  joinCurve: number;
+  outerCurve: number;
+};
+
+type NormalizedIslandRegion = Required<DynamicIslandRegion>;
+
+function normalizeIslandRegions(
+  regions: DynamicIslandRegion[],
+  width: number,
+  height: number,
+  baselineLeft: number
+): NormalizedIslandRegion[] {
+  return regions
+    .map((region) => {
+      const top = clamp(finiteNumber(region.top), 0, height);
+      const bottom = clamp(finiteNumber(region.bottom), top, height);
+      return {
+        left: clamp(finiteNumber(region.left), 0, Math.min(width, baselineLeft)),
+        top,
+        bottom,
+        curve: Math.max(0, finiteNumber(region.curve)),
+        outerCurve: Math.max(0, finiteNumber(region.outerCurve ?? 20))
+      };
+    })
+    .filter((region) => region.bottom - region.top >= 0.1);
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function finiteNumber(value: number): number {
+  return Number.isFinite(value) ? value : 0;
+}
+
+function pathNumber(value: number): string {
+  return (Math.round(value * 10) / 10).toString();
 }
 
 function previewSafeRect(slot: HTMLElement): { top: number; bottom: number } {

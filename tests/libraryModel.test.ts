@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { addCapture, applyLibraryMutation, normalizeLibrary } from "../shared/libraryModel";
 import { parseStoredCaptureSession } from "../shared/sessionModel";
+import { dockInfluence, dynamicIslandPath } from "../src/content/dockLayout";
 import type { Capture } from "../shared/types";
 
 const capture = (id: string): Capture => ({
@@ -17,6 +18,36 @@ const base = normalizeLibrary({
   groups: [],
   railOrder: [{ kind: "capture", id: "a" }, { kind: "capture", id: "b" }, { kind: "capture", id: "c" }]
 });
+
+{
+  assert.equal(dockInfluence(4, null), 0);
+  assert.equal(dockInfluence(4, 4), 1);
+  assert.equal(dockInfluence(3, 4), 0.7);
+  assert.equal(dockInfluence(5, 4), 0.7);
+  assert.equal(dockInfluence(2, 4), 0.4);
+  assert.equal(dockInfluence(6, 4), 0.4);
+  assert.equal(dockInfluence(1, 4), 0);
+}
+
+{
+  const path = dynamicIslandPath({
+    width: 380,
+    height: 600,
+    baselineLeft: 306,
+    regions: [
+      { left: 240, top: 100, bottom: 180, curve: 24, outerCurve: 18 },
+      { left: 40, top: 210, bottom: 410, curve: 48, outerCurve: 20 },
+      { left: 230, top: 440, bottom: 520, curve: 24, outerCurve: 18 }
+    ]
+  });
+  assert.ok(path.startsWith("M 380 0 H 306"));
+  assert.ok(path.includes(" 40 "));
+  assert.ok(path.includes("Q 306 100 282 100 H 258 Q 240 100 240 118"));
+  assert.ok(path.includes("Q "));
+  assert.ok(!path.includes("NaN"));
+  assert.ok((path.match(/\bL\b/g) ?? []).length === 0);
+  assert.ok(path.endsWith("Z"));
+}
 
 {
   const grouped = applyLibraryMutation(base, {
