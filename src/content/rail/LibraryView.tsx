@@ -344,6 +344,8 @@ function CaptureDockItem(props: {
     <div
       ref={slotRef}
       data-docksnip-entry-index={props.index}
+      data-docksnip-rail-kind="capture"
+      data-docksnip-rail-id={props.capture.id}
       className={[
         "justsnap-dock-slot",
         isFocused ? "justsnap-dock-slot-hovered" : "",
@@ -612,6 +614,8 @@ function GroupDockItem(props: {
     <div
       data-justsnap-group-id={props.group.id}
       data-docksnip-entry-index={props.index}
+      data-docksnip-rail-kind="group"
+      data-docksnip-rail-id={props.group.id}
       className={[
         "justsnap-dock-slot",
         "justsnap-dock-group-slot",
@@ -899,6 +903,7 @@ function folderIntentForCapture(
 function verticalDropZone(event: React.DragEvent): "before" | "center" | "after" {
   return verticalDropZoneForElement(event.currentTarget, event.clientY);
 }
+
 
 function railIntentClass(intent: RailDropIntent | null, item: RailOrderItem): string {
   if (!intent || intent.scope !== "rail") return "";

@@ -87,6 +87,7 @@ export type CaptureSelectionResult = {
 export type BackgroundRequest =
   | { type: "JUSTSNAP_TOGGLE_RAIL" }
   | { type: "JUSTSNAP_CLOSE_RAIL_GLOBAL" }
+  | { type: "JUSTSNAP_OPEN_SETTINGS" }
   | { type: "JUSTSNAP_OPEN_SHORTCUT_SETTINGS" }
   | { type: "JUSTSNAP_START_CAPTURE_ACTIVE"; addTarget?: CaptureAddTarget }
   | { type: "JUSTSNAP_PREPARE_CAPTURE_SESSION"; addTarget?: CaptureAddTarget }

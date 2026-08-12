@@ -21,6 +21,47 @@ export type DynamicIslandRegion = {
   outerCurve?: number;
 };
 
+export function dockBaseIslandPath(options: {
+  width: number;
+  height: number;
+  joinRadius?: number;
+  outerRadius?: number;
+}): string {
+  const width = finiteNumber(options.width);
+  const height = finiteNumber(options.height);
+  if (width <= 0 || height <= 0) return "";
+
+  const joinRadius = clamp(
+    finiteNumber(options.joinRadius ?? 20),
+    0,
+    Math.min(width, height / 4)
+  );
+  const outerRadius = clamp(
+    finiteNumber(options.outerRadius ?? 28),
+    0,
+    Math.min(width, (height - joinRadius * 2) / 2)
+  );
+  const bodyTop = joinRadius;
+  const bodyBottom = height - joinRadius;
+
+  return [
+    `M ${pathNumber(width)} 0`,
+    `Q ${pathNumber(width)} ${pathNumber(bodyTop)} ${pathNumber(
+      width - joinRadius
+    )} ${pathNumber(bodyTop)}`,
+    `H ${pathNumber(outerRadius)}`,
+    `Q 0 ${pathNumber(bodyTop)} 0 ${pathNumber(bodyTop + outerRadius)}`,
+    `V ${pathNumber(bodyBottom - outerRadius)}`,
+    `Q 0 ${pathNumber(bodyBottom)} ${pathNumber(outerRadius)} ${pathNumber(bodyBottom)}`,
+    `H ${pathNumber(width - joinRadius)}`,
+    `Q ${pathNumber(width)} ${pathNumber(bodyBottom)} ${pathNumber(width)} ${pathNumber(
+      height
+    )}`,
+    "V 0",
+    "Z"
+  ].join(" ");
+}
+
 export function dynamicIslandPath(options: {
   width: number;
   height: number;
@@ -120,7 +161,9 @@ export function dockCaptureThumbnailSize(baseSize: number, influence: number): n
 }
 
 export function dockFolderSize(baseSize: number, influence: number): number {
-  return dockCaptureThumbnailSize(baseSize, influence);
+  const clampedInfluence = Math.max(0, Math.min(1, influence));
+  const focusedSize = Math.min(88, baseSize * 1.65);
+  return baseSize + (focusedSize - baseSize) * clampedInfluence;
 }
 
 export function dockCapturePreviewFrame(

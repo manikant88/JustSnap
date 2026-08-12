@@ -1,16 +1,13 @@
 export const styles = `
   :host, * { box-sizing: border-box; }
   :host {
-    --docksnip-toolbar-width: min(480px, calc(100vw - 28px));
-    --docksnip-glass-background:
-      radial-gradient(circle at 28% 0%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.07) 30%, rgba(255, 255, 255, 0) 56%),
-      linear-gradient(105deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.035) 38%, rgba(255, 255, 255, 0.095) 72%, rgba(255, 255, 255, 0.045)),
-      linear-gradient(180deg, rgba(31, 37, 46, 0.72), rgba(17, 21, 29, 0.66));
-    --docksnip-glass-border: rgba(255, 255, 255, 0.24);
-    --docksnip-glass-shadow:
-      inset 0 1px 1px rgba(255, 255, 255, 0.32),
-      inset 0 -1px 1px rgba(255, 255, 255, 0.1),
-      0 18px 42px rgba(3, 7, 18, 0.28);
+    --docksnip-toolbar-width: min(620px, calc(100vw - 28px));
+    --docksnip-panel-background: #111214;
+    --docksnip-panel-border: #34373d;
+    --docksnip-panel-shadow: 0 16px 38px rgba(0, 0, 0, 0.34);
+    --docksnip-control-background: #25282e;
+    --docksnip-control-hover: #30343b;
+    --docksnip-control-border: #41454d;
   }
   :host, :host * {
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
@@ -29,18 +26,34 @@ export const styles = `
     align-items: flex-end;
     justify-content: center;
     color: rgba(246, 250, 255, 0.92);
-    background: #050506;
+    background: transparent;
     border: 0;
     border-radius: 28px 0 0 28px;
-    box-shadow:
-      inset 1px 0 0 rgba(255, 255, 255, 0.1),
-      -12px 0 30px rgba(0, 0, 0, 0.24);
+    box-shadow: none;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     overflow: visible;
     translate: 0 -50%;
     pointer-events: auto;
     animation: docksnip-surface-enter 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
     transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 140ms ease;
+  }
+  .justsnap-rail-silhouette {
+    position: absolute;
+    top: -20px;
+    right: 0;
+    width: 100%;
+    height: calc(100% + 40px);
+    z-index: 0;
+    overflow: visible;
+    pointer-events: none;
+  }
+  .justsnap-rail-silhouette path {
+    fill: #050506;
+    filter: drop-shadow(-12px 0 18px rgba(0, 0, 0, 0.24));
+  }
+  .justsnap-rail > :not(.justsnap-rail-silhouette) {
+    position: relative;
+    z-index: 1;
   }
   .justsnap-rail-expanded {
     max-height: none;
@@ -70,7 +83,7 @@ export const styles = `
     color: rgba(245, 250, 255, 0.9);
     background: transparent;
     cursor: pointer;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0);
+    box-shadow: none;
     transition: background 120ms ease, color 120ms ease, scale 120ms ease, box-shadow 120ms ease;
     pointer-events: auto;
   }
@@ -116,13 +129,8 @@ export const styles = `
   .justsnap-rail-control:hover:not(:disabled),
   .justsnap-rail-control:focus-visible {
     color: #fff;
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.08)),
-      rgba(255, 255, 255, 0.08);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.24),
-      inset 0 -1px 0 rgba(255, 255, 255, 0.08),
-      0 8px 18px rgba(3, 7, 18, 0.16);
+    background: var(--docksnip-control-hover);
+    box-shadow: 0 8px 18px rgba(3, 7, 18, 0.2);
     outline: none;
     scale: 1.06;
   }
@@ -142,23 +150,32 @@ export const styles = `
     z-index: 2147483647;
     width: var(--docksnip-toolbar-width);
     min-height: 44px;
-    padding: 8px 8px 8px 13px;
-    border: 1px solid rgba(248, 113, 113, 0.38);
-    border-radius: 14px;
+    padding: 9px 9px 9px 14px;
+    border: 1px solid color-mix(in srgb, var(--docksnip-notice-accent) 46%, transparent);
+    border-radius: 18px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    background: var(--docksnip-glass-background);
+    background: var(--docksnip-panel-background);
     color: #fff;
-    box-shadow: var(--docksnip-glass-shadow);
-    backdrop-filter: blur(26px) saturate(190%) brightness(1.08);
-    -webkit-backdrop-filter: blur(26px) saturate(190%) brightness(1.08);
+    box-shadow: var(--docksnip-panel-shadow);
     animation: docksnip-notice-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
   }
+  .justsnap-toolbar-notice::before {
+    content: "";
+    width: 3px;
+    align-self: stretch;
+    flex: 0 0 auto;
+    border-radius: 999px;
+    background: var(--docksnip-notice-accent);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--docksnip-notice-accent) 42%, transparent);
+  }
+  .justsnap-toolbar-notice-error { --docksnip-notice-accent: #ff6961; }
+  .justsnap-toolbar-notice-info { --docksnip-notice-accent: #55b8ff; }
   .justsnap-toolbar-notice-icon {
     flex: 0 0 auto;
-    color: rgba(252, 165, 165, 0.96);
+    color: var(--docksnip-notice-accent);
   }
   .justsnap-toolbar-notice-message {
     flex: 1 1 auto;
@@ -172,16 +189,14 @@ export const styles = `
     min-width: 42px;
     height: 30px;
     padding: 0 11px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid var(--docksnip-control-border);
     border-radius: 9px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
     color: #fff;
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06)),
-      rgba(255, 255, 255, 0.06);
+    background: var(--docksnip-control-background);
     font-size: 12px;
     font-weight: 700;
     line-height: 1;
@@ -189,7 +204,7 @@ export const styles = `
   }
   .justsnap-toolbar-notice-action:hover,
   .justsnap-toolbar-notice-action:focus-visible {
-    background: rgba(255, 255, 255, 0.18);
+    background: var(--docksnip-control-hover);
     outline: none;
   }
   .justsnap-page-image-add {
@@ -197,23 +212,18 @@ export const styles = `
     z-index: 2147483645;
     width: 42px;
     height: 42px;
-    border: 1px solid rgba(255, 255, 255, 0.38);
+    border: 1px solid #3f4650;
     border-radius: 999px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     color: rgba(248, 250, 252, 0.96);
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.05)),
-      rgba(15, 23, 42, 0.76);
+    background: #18202b;
     box-shadow:
       0 12px 28px rgba(3, 7, 18, 0.26),
-      0 0 0 3px rgba(14, 165, 233, 0.12),
-      inset 0 1px 0 rgba(255, 255, 255, 0.24);
+      0 0 0 3px rgba(14, 165, 233, 0.12);
     cursor: pointer;
     translate: -50% -50%;
-    backdrop-filter: blur(12px) saturate(150%);
-    -webkit-backdrop-filter: blur(12px) saturate(150%);
     transition: background 120ms ease, color 120ms ease, scale 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
   }
   .justsnap-page-image-add::before,
@@ -251,13 +261,10 @@ export const styles = `
   .justsnap-page-image-add:hover,
   .justsnap-page-image-add:focus-visible {
     color: #fff;
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.08)),
-      rgba(14, 165, 233, 0.78);
+    background: #087eb8;
     box-shadow:
       0 14px 32px rgba(3, 7, 18, 0.3),
-      0 0 0 4px rgba(14, 165, 233, 0.2),
-      inset 0 1px 0 rgba(255, 255, 255, 0.32);
+      0 0 0 4px rgba(14, 165, 233, 0.2);
     outline: none;
     scale: 1.06;
   }
@@ -274,13 +281,10 @@ export const styles = `
   }
   .justsnap-page-image-add-saved {
     color: #fff;
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.06)),
-      rgba(34, 197, 94, 0.82);
+    background: #168642;
     box-shadow:
       0 12px 28px rgba(3, 7, 18, 0.24),
-      0 0 0 4px rgba(34, 197, 94, 0.2),
-      inset 0 1px 0 rgba(255, 255, 255, 0.26);
+      0 0 0 4px rgba(34, 197, 94, 0.2);
   }
   .justsnap-page-image-add svg {
     width: 18px;
@@ -302,7 +306,7 @@ export const styles = `
     width: calc(100% - 20px);
     height: 1px;
     border-radius: 999px;
-    background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0));
+    background: #34373d;
     box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
   }
   .justsnap-library {
@@ -388,7 +392,7 @@ export const styles = `
     border-radius: 8px;
     padding: 0;
     overflow: hidden;
-    background: rgba(24, 30, 39, 0.56);
+    background: #181e27;
     box-shadow: 0 3px 10px rgba(3, 7, 18, 0.14);
     cursor: grab;
     transform-origin: center right;
@@ -461,14 +465,12 @@ export const styles = `
     z-index: 1;
     width: 52px;
     height: 52px;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border: 1px solid #353a43 !important;
     border-radius: 8px !important;
     padding: 4px !important;
     overflow: hidden;
-    background:
-      linear-gradient(145deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.035)),
-      rgba(25, 31, 40, 0.64) !important;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 4px 12px rgba(3, 7, 18, 0.16);
+    background: #1a2029 !important;
+    box-shadow: 0 4px 12px rgba(3, 7, 18, 0.18);
     cursor: grab;
     transform-origin: center right;
     translate: 0 -50%;
@@ -485,15 +487,13 @@ export const styles = `
   .justsnap-dock-folder-button:hover,
   .justsnap-dock-folder-button:focus-visible {
     border-color: rgba(125, 211, 252, 0.9) !important;
-    background:
-      linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.055)),
-      rgba(25, 31, 40, 0.7) !important;
-    box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.14), 0 14px 30px rgba(3, 7, 18, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    background: #222a35 !important;
+    box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.14), 0 14px 30px rgba(3, 7, 18, 0.25);
     z-index: 2;
   }
   .justsnap-dock-add-target-folder {
     border-color: #0ea5e9 !important;
-    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.22), 0 10px 24px rgba(15, 32, 48, 0.24), inset 0 0 0 1px rgba(148, 163, 184, 0.32) !important;
+    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.22), 0 10px 24px rgba(15, 32, 48, 0.24) !important;
   }
   .justsnap-dock-folder-button:active { cursor: grabbing; }
   .justsnap-folder-grid {
@@ -512,7 +512,7 @@ export const styles = `
     border-radius: 5px;
     object-fit: cover;
     display: block;
-    background: rgba(255, 255, 255, 0.08);
+    background: #252a32;
   }
   .justsnap-dock-add {
     --justsnap-add-size: clamp(18px, calc(var(--justsnap-dock-base, 52px) * 0.38), 22px);
@@ -531,14 +531,10 @@ export const styles = `
     align-items: center;
     justify-content: center;
     color: #fff;
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.035)),
-      rgba(16, 21, 29, 0.82);
-    box-shadow: 0 6px 16px rgba(3, 7, 18, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+    background: #202630;
+    box-shadow: 0 6px 16px rgba(3, 7, 18, 0.3);
     line-height: 0;
     cursor: pointer;
-    backdrop-filter: blur(8px) saturate(140%);
-    -webkit-backdrop-filter: blur(8px) saturate(140%);
     transition:
       top 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
       right 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -550,9 +546,7 @@ export const styles = `
   .justsnap-dock-add:hover,
   .justsnap-dock-add:focus-visible {
     color: #fff;
-    background:
-      linear-gradient(180deg, rgba(125, 211, 252, 0.3), rgba(14, 165, 233, 0.15)),
-      rgba(16, 21, 29, 0.86);
+    background: #16445d;
     box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.16), 0 8px 18px rgba(3, 7, 18, 0.3);
     outline: none;
     scale: 1.08;
@@ -585,7 +579,7 @@ export const styles = `
     align-items: center;
     justify-content: center;
     color: #243449;
-    background: rgba(255,255,255,0.9) !important;
+    background: #f5f7fa !important;
     box-shadow: 0 6px 14px rgba(15, 32, 48, 0.18);
     cursor: pointer;
     line-height: 0;
@@ -602,7 +596,7 @@ export const styles = `
   .justsnap-group-flyout {
     position: absolute;
     top: 50%;
-    right: calc(100% + 8px);
+    right: calc(100% + 12px);
     z-index: 4;
     width: min(380px, calc(100vw - 120px));
     max-height: min(420px, calc(100vh - 28px));
@@ -617,19 +611,6 @@ export const styles = `
     translate: 0 -50%;
     pointer-events: none !important;
     animation: docksnip-flyout-enter 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  }
-  .justsnap-group-flyout::before {
-    content: "";
-    position: absolute;
-    inset: 0 0 0 auto;
-    z-index: 0;
-    width: var(--justsnap-rail-surface, 74px);
-    border-radius: 14px 0 0 14px;
-    pointer-events: none;
-  }
-  .justsnap-group-flyout > * {
-    position: relative;
-    z-index: 1;
   }
   .justsnap-group-flyout-slot {
     flex: 0 0 auto;
@@ -668,18 +649,16 @@ export const styles = `
     left: 50%;
     translate: -50% 0;
     width: var(--docksnip-toolbar-width);
-    min-height: 48px;
-    padding: 7px 8px 7px 16px;
-    border: 1px solid var(--docksnip-glass-border);
-    border-radius: 16px;
+    min-height: 56px;
+    padding: 8px 8px 8px 18px;
+    border: 1px solid var(--docksnip-panel-border);
+    border-radius: 22px;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     color: #fff;
-    background: var(--docksnip-glass-background);
-    box-shadow: var(--docksnip-glass-shadow);
-    backdrop-filter: blur(26px) saturate(190%) brightness(1.08);
-    -webkit-backdrop-filter: blur(26px) saturate(190%) brightness(1.08);
+    background: var(--docksnip-panel-background);
+    box-shadow: var(--docksnip-panel-shadow);
     z-index: 2147483647;
     animation: docksnip-surface-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
     transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 140ms ease;
@@ -703,17 +682,17 @@ export const styles = `
     display: grid;
     gap: 1px;
     line-height: 1.15;
-    max-width: min(320px, 34vw);
+    max-width: min(330px, 38vw);
   }
   .justsnap-capture-toolbar-copy strong {
-    font-size: 14px;
-    font-weight: 700;
+    font-size: 14.5px;
+    font-weight: 720;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .justsnap-capture-toolbar-copy small {
-    color: rgba(255,255,255,0.72);
+    color: rgba(255,255,255,0.58);
     font-size: 11.5px;
     font-weight: 500;
   }
@@ -722,14 +701,14 @@ export const styles = `
     min-width: 34px;
     height: 34px;
     padding: 0 10px;
-    border: 1px solid rgba(255,255,255,0.18);
-    border-radius: 9px;
+    border: 1px solid var(--docksnip-control-border);
+    border-radius: 11px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
     color: #fff;
-    background: rgba(255,255,255,0.08);
+    background: var(--docksnip-control-background);
     cursor: pointer;
     font: inherit;
     font-size: 12px;
@@ -741,28 +720,26 @@ export const styles = `
   .justsnap-capture-modes {
     flex: 0 0 auto;
     padding: 3px;
-    border: 1px solid rgba(255,255,255,0.14);
-    border-radius: 11px;
+    border: 1px solid #30343a;
+    border-radius: 13px;
     display: inline-flex;
     align-items: center;
     gap: 2px;
-    background: rgba(6, 10, 18, 0.34);
+    background: #090a0c;
   }
   .justsnap-capture-toolbar .justsnap-capture-modes button {
     height: 30px;
     border: 0;
-    border-radius: 8px;
+    border-radius: 10px;
     color: rgba(255,255,255,0.72);
     background: transparent;
   }
   .justsnap-capture-toolbar .justsnap-capture-modes .justsnap-capture-mode-active {
     color: #fff;
-    background:
-      linear-gradient(180deg, rgba(56, 189, 248, 0.32), rgba(14, 116, 144, 0.24)),
-      rgba(14, 165, 233, 0.16);
+    background: #155f84;
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.18),
-      inset 0 0 0 1px rgba(125, 211, 252, 0.32);
+      0 0 0 1px rgba(125, 211, 252, 0.38),
+      0 0 14px rgba(14, 165, 233, 0.12);
   }
   .justsnap-toolbar-destination {
     width: 34px;
@@ -776,8 +753,7 @@ export const styles = `
     gap: 2px;
     flex: 0 0 auto;
     overflow: hidden;
-    background: rgba(10, 14, 21, 0.36);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    background: #151920;
   }
   .justsnap-toolbar-destination img {
     width: 100%;
@@ -793,19 +769,40 @@ export const styles = `
     grid-row: 1 / -1;
   }
   .justsnap-capture-toolbar .justsnap-capture-done {
-    background: rgba(14, 165, 233, 0.28);
+    background: #155f84;
     border-color: rgba(125, 211, 252, 0.46);
   }
+  .justsnap-toolbar-actions {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding-left: 8px;
+    border-left: 1px solid rgba(255,255,255,0.1);
+  }
+  .justsnap-capture-toolbar .justsnap-toolbar-icon-button {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    color: rgba(255, 255, 255, 0.68);
+    background: var(--docksnip-control-background);
+  }
+  .justsnap-capture-toolbar .justsnap-toolbar-icon-button:hover,
+  .justsnap-capture-toolbar .justsnap-toolbar-icon-button:focus-visible {
+    color: #fff;
+    background: var(--docksnip-control-hover);
+    outline: none;
+  }
   .justsnap-capture-toolbar .justsnap-capture-close {
-    width: 34px;
+    width: 36px;
     padding: 0;
     color: rgba(255, 255, 255, 0.78);
-    background: rgba(255, 255, 255, 0.045);
+    background: var(--docksnip-control-background);
   }
   .justsnap-capture-toolbar .justsnap-capture-close:hover,
   .justsnap-capture-toolbar .justsnap-capture-close:focus-visible {
     color: #fff;
-    background: rgba(248, 113, 113, 0.18);
+    background: #4a2023;
     border-color: rgba(252, 165, 165, 0.34);
   }
   .justsnap-dock-group-slot {
@@ -850,7 +847,7 @@ export const styles = `
   .justsnap-clear-dock-control:hover:not(:disabled),
   .justsnap-clear-dock-control:focus-visible {
     color: rgba(254, 202, 202, 0.98);
-    background: rgba(220, 38, 38, 0.18);
+    background: #4a2023;
   }
   .justsnap-dock-delete-confirm {
     position: fixed;
@@ -861,17 +858,15 @@ export const styles = `
     min-height: 52px;
     padding: 9px 9px 9px 13px;
     border: 1px solid rgba(248,113,113,0.42);
-    border-radius: 14px;
+    border-radius: 18px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
     translate: -50% 0;
     color: #fff;
-    background: var(--docksnip-glass-background);
-    box-shadow: var(--docksnip-glass-shadow);
-    backdrop-filter: blur(26px) saturate(190%) brightness(1.08);
-    -webkit-backdrop-filter: blur(26px) saturate(190%) brightness(1.08);
+    background: var(--docksnip-panel-background);
+    box-shadow: var(--docksnip-panel-shadow);
     animation: docksnip-notice-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
   }
   .justsnap-dock-delete-confirm-icon { flex: 0 0 auto; color: rgba(252,165,165,0.96); }
@@ -879,10 +874,10 @@ export const styles = `
   .justsnap-dock-delete-confirm strong { font-size: 13px; }
   .justsnap-dock-delete-confirm small { color: rgba(255,255,255,0.68); font-size: 11px; }
   .justsnap-dock-delete-confirm > div { display: flex; flex: 0 0 auto; gap: 7px; }
-  .justsnap-dock-delete-confirm button { height: 32px; padding: 0 11px; border: 1px solid rgba(255,255,255,0.2); border-radius: 9px; color: #fff; background: rgba(255,255,255,0.08); font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+  .justsnap-dock-delete-confirm button { height: 34px; padding: 0 12px; border: 1px solid var(--docksnip-control-border); border-radius: 11px; color: #fff; background: var(--docksnip-control-background); font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer; }
   .justsnap-dock-delete-confirm button:hover,
-  .justsnap-dock-delete-confirm button:focus-visible { background: rgba(255,255,255,0.18); outline: none; }
-  .justsnap-dock-delete-confirm .justsnap-danger-button { background: rgba(220,38,38,0.28); border-color: rgba(248,113,113,0.42); }
+  .justsnap-dock-delete-confirm button:focus-visible { background: var(--docksnip-control-hover); outline: none; }
+  .justsnap-dock-delete-confirm .justsnap-danger-button { background: #512326; border-color: rgba(248,113,113,0.42); }
   .justsnap-selection {
     position: fixed;
     border: 2px solid #45a6ff;
@@ -900,6 +895,52 @@ export const styles = `
   @keyframes docksnip-flyout-enter {
     from { opacity: 0; translate: 5px -50%; }
     to { opacity: 1; translate: 0 -50%; }
+  }
+  @media (max-width: 680px) {
+    :host {
+      --docksnip-toolbar-width: calc(100vw - 16px);
+    }
+    .justsnap-capture-toolbar {
+      min-height: 52px;
+      padding: 7px 7px 7px 12px;
+      gap: 7px;
+      border-radius: 19px;
+    }
+    .justsnap-capture-toolbar-copy {
+      max-width: none;
+    }
+    .justsnap-capture-toolbar-copy small {
+      display: none;
+    }
+    .justsnap-capture-toolbar .justsnap-capture-modes button {
+      padding: 0 8px;
+    }
+    .justsnap-toolbar-actions {
+      gap: 2px;
+      padding-left: 5px;
+    }
+    .justsnap-capture-toolbar .justsnap-toolbar-icon-button {
+      width: 32px;
+      height: 32px;
+    }
+    .justsnap-toolbar-notice,
+    .justsnap-dock-delete-confirm {
+      padding-left: 10px;
+      border-radius: 16px;
+    }
+  }
+  @media (max-width: 500px) {
+    .justsnap-capture-toolbar-copy strong {
+      max-width: 112px;
+    }
+    .justsnap-capture-toolbar .justsnap-capture-modes button {
+      min-width: 30px;
+      padding: 0 6px;
+      font-size: 11px;
+    }
+    .justsnap-capture-toolbar .justsnap-capture-done {
+      padding: 0 8px;
+    }
   }
   @media (prefers-reduced-motion: reduce) {
     .justsnap-rail,

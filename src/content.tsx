@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
   AlertCircle,
@@ -6,6 +7,7 @@ import {
   Check,
   CornerDownLeft,
   FolderPlus,
+  Info,
   Plus,
   Trash2,
   X
@@ -242,8 +244,8 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
   }, [current, start]);
 
   const captureSelection = async (rect: Rect, sessionId = captureSessionRef.current?.sessionId) => {
-    setCaptureHidden(true);
-    await nextAnimationFrame();
+    flushSync(() => setCaptureHidden(true));
+    await waitForCleanCaptureFrame();
     try {
       return await sendBackground<CaptureSelectionResult>({
         type: "JUSTSNAP_CAPTURE_SELECTION",
@@ -863,6 +865,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
     [captures, pendingAddCaptureIds]
   );
   const railLayout = dockLayoutForCount(orderedRailOrder.length + RAIL_CONTROL_ENTRY_COUNT);
+  const draggedRailItem = dragging ? dragToRailItem(dragging) : null;
   const railStyle = {
     "--justsnap-rail-surface": `${railLayout.surfaceWidth}px`,
     "--justsnap-dock-base": `${railLayout.baseSize}px`,
@@ -916,6 +919,8 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
           captureHidden ? "justsnap-capture-ui-hidden" : ""
         ].filter(Boolean).join(" ")}
         style={railStyle}
+        draggedItem={draggedRailItem}
+        onFallbackDrop={applyRailDropIntent}
         top={
           <button
             className="justsnap-rail-control"
@@ -927,17 +932,15 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
           </button>
         }
         bottom={
-          <div className="justsnap-rail-control-slot justsnap-rail-bottom-control-slot">
-            <button
-              className="justsnap-rail-control justsnap-clear-dock-control"
-              aria-label="Clear dock"
-              data-tooltip="Clear dock"
-              disabled={!railOrder.length}
-              onClick={() => setClearDockPending(true)}
-            >
-              <Trash2 size={18} />
-            </button>
-          </div>
+          <button
+            className="justsnap-rail-control justsnap-clear-dock-control"
+            aria-label="Clear dock"
+            data-tooltip="Clear dock"
+            disabled={!railOrder.length}
+            onClick={() => setClearDockPending(true)}
+          >
+            <Trash2 size={18} />
+          </button>
         }
       >
         <LibraryView
@@ -977,13 +980,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
       )}
 
       {error && (
-        <section className="justsnap-toolbar-notice" role="alert" aria-live="assertive">
-          <AlertCircle className="justsnap-toolbar-notice-icon" size={17} aria-hidden="true" />
-          <p className="justsnap-toolbar-notice-message">{friendlyErrorMessage(error)}</p>
-          <button className="justsnap-toolbar-notice-action" onClick={() => setError("")}>
-            OK
-          </button>
-        </section>
+        <ToolbarNotice tone="error" message={friendlyErrorMessage(error)} onDismiss={() => setError("")} />
       )}
 
       {pageImageAffordance && !captureMode && (
@@ -1034,14 +1031,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
               <CornerDownLeft size={13} />
             </button>
           )}
-          <button
-            className="justsnap-capture-close"
-            aria-label={`Close ${shortcutModifier} ⇧ X`}
-            data-tooltip={`Close ${shortcutModifier} ⇧ X`}
-            onClick={closeRail}
-          >
-            <X size={17} />
-          </button>
+          <ToolbarActions shortcutModifier={shortcutModifier} onClose={closeRail} />
         </div>
       )}
 
@@ -1085,19 +1075,56 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
               <span>Done</span>
               <CornerDownLeft size={13} />
             </button>
-            <button
-              className="justsnap-capture-close"
-              aria-label={`Close ${shortcutModifier} ⇧ X`}
-              data-tooltip={`Close ${shortcutModifier} ⇧ X`}
-              onClick={closeRail}
-            >
-              <X size={17} />
-            </button>
+            <ToolbarActions shortcutModifier={shortcutModifier} onClose={closeRail} />
           </div>
           {activeRect && <div className="justsnap-selection" style={rectStyle(activeRect)} />}
         </div>
       )}
     </>
+  );
+}
+
+function ToolbarActions({
+  shortcutModifier,
+  onClose
+}: {
+  shortcutModifier: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="justsnap-toolbar-actions" role="group" aria-label="DockSnip controls">
+      <button
+        className="justsnap-toolbar-icon-button justsnap-capture-close"
+        aria-label={`Close ${shortcutModifier} ⇧ X`}
+        title={`Close (${shortcutModifier} ⇧ X)`}
+        onClick={onClose}
+      >
+        <X size={17} />
+      </button>
+    </div>
+  );
+}
+
+function ToolbarNotice({
+  tone,
+  message,
+  onDismiss
+}: {
+  tone: "error" | "info";
+  message: string;
+  onDismiss: () => void;
+}) {
+  const Icon = tone === "error" ? AlertCircle : Info;
+  return (
+    <section
+      className={`justsnap-toolbar-notice justsnap-toolbar-notice-${tone}`}
+      role={tone === "error" ? "alert" : "status"}
+      aria-live={tone === "error" ? "assertive" : "polite"}
+    >
+      <Icon className="justsnap-toolbar-notice-icon" size={17} aria-hidden="true" />
+      <p className="justsnap-toolbar-notice-message">{message}</p>
+      <button className="justsnap-toolbar-notice-action" onClick={onDismiss}>OK</button>
+    </section>
   );
 }
 
@@ -1392,8 +1419,10 @@ function rectStyle(rect: Rect): React.CSSProperties {
   return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
 }
 
-function nextAnimationFrame(): Promise<void> {
-  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+function waitForCleanCaptureFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
 }
 
 async function loadCaptureBlob(imageBlobKey: string): Promise<Blob | undefined> {

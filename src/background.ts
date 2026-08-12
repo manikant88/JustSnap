@@ -20,6 +20,7 @@ let captureSession: ActiveCaptureSession | undefined;
 let runtimeStateLoaded = false;
 let runtimeStateLoadPromise: Promise<void> | undefined;
 let runtimeStateWriteQueue: Promise<void> = Promise.resolve();
+let railLifecycleRevision = 0;
 const RUNTIME_STATE_KEY = "docksnip_runtime_state";
 
 type OffscreenCropResult = {
@@ -63,25 +64,27 @@ chrome.commands.onCommand.addListener(async (command) => {
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   await ensureRuntimeState();
   if (!railFollowEnabled) return;
+  const revision = railLifecycleRevision;
   chrome.tabs.get(tabId, (tab) => {
     if (chrome.runtime.lastError || !tab) return;
-    void showOnlyOnTab(tab, messageForTab()).catch(() => undefined);
+    void showOnlyOnTab(tab, messageForTab(), revision).catch(() => undefined);
   });
 });
 
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
   await ensureRuntimeState();
   if (!railFollowEnabled || windowId === chrome.windows.WINDOW_ID_NONE) return;
+  const revision = railLifecycleRevision;
   chrome.tabs.query({ active: true, windowId }, ([tab]) => {
     if (!tab) return;
-    void showOnlyOnTab(tab, messageForTab()).catch(() => undefined);
+    void showOnlyOnTab(tab, messageForTab(), revision).catch(() => undefined);
   });
 });
 
 chrome.tabs.onUpdated.addListener(async (_tabId, changeInfo, tab) => {
   await ensureRuntimeState();
   if (!railFollowEnabled || changeInfo.status !== "complete" || !tab.active) return;
-  void showOnlyOnTab(tab, messageForTab()).catch(() => undefined);
+  void showOnlyOnTab(tab, messageForTab(), railLifecycleRevision).catch(() => undefined);
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
@@ -128,6 +131,11 @@ async function handleMessage(request: BackgroundRequest, sender: chrome.runtime.
 
     if (request.type === "JUSTSNAP_OPEN_SHORTCUT_SETTINGS") {
       await chrome.tabs.create({ url: "chrome://extensions/shortcuts" });
+      return { ok: true, data: null };
+    }
+
+    if (request.type === "JUSTSNAP_OPEN_SETTINGS") {
+      await chrome.runtime.openOptionsPage();
       return { ok: true, data: null };
     }
 
@@ -195,8 +203,10 @@ async function toggleRailForTab(tab: chrome.tabs.Tab): Promise<void> {
     return;
   }
   railFollowEnabled = true;
+  railLifecycleRevision += 1;
+  const revision = railLifecycleRevision;
   await persistRuntimeState();
-  await showOnlyOnTab(tab);
+  await showOnlyOnTab(tab, { type: "JUSTSNAP_SHOW_RAIL" }, revision);
 }
 
 async function startCaptureOnTab(tab: chrome.tabs.Tab | undefined, addTarget?: CaptureAddTarget) {
@@ -217,33 +227,50 @@ async function prepareCaptureSession(tab: chrome.tabs.Tab | undefined, addTarget
     addTarget
   };
   railFollowEnabled = true;
+  railLifecycleRevision += 1;
   await persistRuntimeState();
   return sessionSnapshot(captureSession);
 }
 
-async function showOnlyOnTab(tab: chrome.tabs.Tab, message: ContentMessage = { type: "JUSTSNAP_SHOW_RAIL" }): Promise<void> {
+async function showOnlyOnTab(
+  tab: chrome.tabs.Tab,
+  message: ContentMessage = { type: "JUSTSNAP_SHOW_RAIL" },
+  expectedRevision = railLifecycleRevision
+): Promise<void> {
+  if (!isRailLifecycleCurrent(expectedRevision)) return;
   if (!tab.id || isRestrictedTabUrl(tab.url)) {
     if (activeRailTabId) await sendMessageIfPresent(activeRailTabId, { type: "JUSTSNAP_CLOSE_RAIL" });
+    if (!isRailLifecycleCurrent(expectedRevision)) return;
     activeRailTabId = undefined;
     await persistRuntimeState();
     return;
   }
   if (activeRailTabId && activeRailTabId !== tab.id) {
     await sendMessageIfPresent(activeRailTabId, { type: "JUSTSNAP_CLOSE_RAIL" });
+    if (!isRailLifecycleCurrent(expectedRevision)) return;
   }
   activeRailTabId = tab.id;
   if (captureSession) captureSession.tabId = tab.id;
   await persistRuntimeState();
-  await sendMessage(tab.id, message);
+  if (!isRailLifecycleCurrent(expectedRevision)) return;
+  await sendMessage(tab.id, message, () => isRailLifecycleCurrent(expectedRevision));
+  if (!isRailLifecycleCurrent(expectedRevision)) {
+    await sendMessageIfPresent(tab.id, { type: "JUSTSNAP_CLOSE_RAIL" });
+  }
 }
 
 async function closeRailEverywhere(): Promise<void> {
   railFollowEnabled = false;
+  railLifecycleRevision += 1;
   captureSession = undefined;
   activeRailTabId = undefined;
+  await persistRuntimeState();
   const tabs = await chrome.tabs.query({});
   await Promise.all(tabs.map((tab) => (tab.id ? sendMessageIfPresent(tab.id, { type: "JUSTSNAP_CLOSE_RAIL" }) : undefined)));
-  await persistRuntimeState();
+}
+
+function isRailLifecycleCurrent(expectedRevision: number): boolean {
+  return railFollowEnabled && railLifecycleRevision === expectedRevision;
 }
 
 async function importImageUrl(request: Extract<BackgroundRequest, { type: "JUSTSNAP_IMPORT_IMAGE_URL" }>): Promise<Capture> {
@@ -519,14 +546,17 @@ async function blobToDataUrl(blob: Blob): Promise<string> {
   return `data:${blob.type || "image/png"};base64,${btoa(binary)}`;
 }
 
-async function sendMessage(tabId: number, message: ContentMessage): Promise<void> {
+async function sendMessage(tabId: number, message: ContentMessage, shouldContinue: () => boolean = () => true): Promise<void> {
+  if (!shouldContinue()) return;
   try {
     await chrome.tabs.sendMessage<ContentMessage>(tabId, message);
   } catch {
+    if (!shouldContinue()) return;
     await chrome.scripting.executeScript({
       target: { tabId },
       files: ["content.js"]
     });
+    if (!shouldContinue()) return;
     await chrome.tabs.sendMessage<ContentMessage>(tabId, message);
   }
 }
@@ -580,6 +610,7 @@ function validateBackgroundRequest(value: unknown, sender: chrome.runtime.Messag
   switch (value.type) {
     case "JUSTSNAP_TOGGLE_RAIL":
     case "JUSTSNAP_CLOSE_RAIL_GLOBAL":
+    case "JUSTSNAP_OPEN_SETTINGS":
     case "JUSTSNAP_OPEN_SHORTCUT_SETTINGS":
     case "JUSTSNAP_GET_LIBRARY":
       return { type: value.type };

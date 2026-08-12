@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { addCapture, applyLibraryMutation, normalizeLibrary } from "../shared/libraryModel";
 import { parseStoredCaptureSession } from "../shared/sessionModel";
-import { dockInfluence, dynamicIslandPath } from "../src/content/dockLayout";
+import { dockFolderSize, dockInfluence, dynamicIslandPath } from "../src/content/dockLayout";
+import { insertionIndexForPointer, railInsertIntentForIndex } from "../src/content/rail/dndIntent";
 import type { Capture } from "../shared/types";
 
 const capture = (id: string): Capture => ({
@@ -27,6 +28,34 @@ const base = normalizeLibrary({
   assert.equal(dockInfluence(2, 4), 0.12);
   assert.equal(dockInfluence(6, 4), 0.12);
   assert.equal(dockInfluence(1, 4), 0);
+}
+
+{
+  assert.equal(dockFolderSize(52, 0), 52);
+  assert.ok(Math.abs(dockFolderSize(52, 1) - 85.8) < 0.001);
+  assert.ok(Math.abs(dockFolderSize(28, 1) - 46.2) < 0.001);
+  assert.equal(dockFolderSize(60, 1), 88);
+  assert.ok(Math.abs(dockFolderSize(52, 0.5) - 68.9) < 0.001);
+}
+
+{
+  const bands = [
+    { item: { kind: "capture" as const, id: "a" }, top: 100, bottom: 152 },
+    { item: { kind: "capture" as const, id: "b" }, top: 164, bottom: 216 }
+  ];
+  assert.equal(insertionIndexForPointer(20, bands), 0);
+  assert.equal(insertionIndexForPointer(140, bands), 1);
+  assert.equal(insertionIndexForPointer(300, bands), 2);
+  assert.deepEqual(railInsertIntentForIndex(0, bands.map(({ item }) => item), bands[1].item), {
+    scope: "rail",
+    action: "insert-before",
+    target: bands[0].item
+  });
+  assert.deepEqual(railInsertIntentForIndex(2, bands.map(({ item }) => item), bands[0].item), {
+    scope: "rail",
+    action: "insert-after",
+    target: bands[1].item
+  });
 }
 
 {
