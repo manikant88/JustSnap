@@ -28,7 +28,7 @@ function OptionsApp() {
               <dd>{library.captures.length}</dd>
             </div>
             <div>
-              <dt>Groups</dt>
+              <dt>Folders</dt>
               <dd>{library.groups.length}</dd>
             </div>
           </dl>

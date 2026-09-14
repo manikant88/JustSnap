@@ -1,8 +1,20 @@
 import assert from "node:assert/strict";
-import { addCapture, applyLibraryMutation, normalizeLibrary } from "../shared/libraryModel";
+import {
+  addCapture,
+  applyLibraryMutation,
+  normalizeLibrary,
+  restoreDeletedGroup,
+  revealUnownedCaptures
+} from "../shared/libraryModel";
 import { parseStoredCaptureSession } from "../shared/sessionModel";
-import { dockFolderSize, dockInfluence, dynamicIslandPath } from "../src/content/dockLayout";
+import { dockFolderSize, dockInfluence, dockLayoutForCount, dynamicIslandPath } from "../src/content/dockLayout";
 import { insertionIndexForPointer, railInsertIntentForIndex } from "../src/content/rail/dndIntent";
+import { filesForDelivery } from "../src/content/drag/deliveryPreparation";
+import { fetchImageForImport, MAX_IMPORT_BYTES, validatedImportUrl } from "../src/imageImporter";
+import { styles } from "../src/content/styles";
+import { cropGeometry } from "../shared/cropGeometry";
+import { decodeLibraryStorage, encodeLibraryStorage, LIBRARY_SCHEMA_VERSION } from "../shared/libraryStorageCodec";
+import { createImageStore } from "../src/imageStore";
 import type { Capture } from "../shared/types";
 
 const capture = (id: string): Capture => ({
@@ -21,6 +33,145 @@ const base = normalizeLibrary({
 });
 
 {
+  const calls: string[] = [];
+  const store = createImageStore({
+    saveBlob: async (key) => { calls.push(`save:${key}`); },
+    deleteBlob: async (key) => { calls.push(`delete:${key}`); },
+    insertMetadata: async () => { calls.push("metadata"); throw new Error("storage failed"); }
+  });
+  await assert.rejects(() => store.putCapture(capture("atomic"), new Blob()), /storage failed/);
+  assert.deepEqual(calls, ["save:capture-atomic", "metadata", "delete:capture-atomic"]);
+}
+
+{
+  const calls: string[] = [];
+  const store = createImageStore({
+    saveBlob: async (key) => { calls.push(`save:${key}`); },
+    deleteBlob: async (key) => { calls.push(`delete:${key}`); },
+    insertMetadata: async (_capture, topLevel) => { calls.push(`metadata:${topLevel}`); }
+  });
+  await store.putCapture(capture("pending"), new Blob(), false);
+  assert.deepEqual(calls, ["save:capture-pending", "metadata:false"]);
+}
+
+{
+  const decoded = decodeLibraryStorage({
+    justsnap_captures: [{
+      ...capture("legacy"),
+      groupId: "folder",
+      fullDataUrl: "data:image/png;base64,AA=="
+    }],
+    justsnap_groups: [{ id: "folder", name: "Old", createdAt: 1, captureIds: [], collapsed: true }],
+    justsnap_rail_order: [{ kind: "group", id: "folder" }]
+  });
+  assert.equal(LIBRARY_SCHEMA_VERSION, 1);
+  assert.equal(decoded.needsWrite, true);
+  assert.deepEqual(decoded.library.groups[0].captureIds, ["legacy"]);
+  assert.deepEqual(decoded.library.railOrder, [{ kind: "group", id: "folder" }]);
+}
+
+{
+  assert.throws(
+    () => decodeLibraryStorage({ docksnip_library_schema_version: LIBRARY_SCHEMA_VERSION + 1 }),
+    /newer version/
+  );
+}
+
+{
+  const encoded = encodeLibraryStorage(base);
+  const decoded = decodeLibraryStorage(encoded);
+  assert.equal(decoded.needsWrite, false);
+  assert.deepEqual(decoded.library, base);
+}
+
+{
+  assert.deepEqual(
+    cropGeometry(
+      { width: 2000, height: 1000 },
+      { left: 100, top: 50, width: 300, height: 200 },
+      { width: 1000, height: 500, offsetLeft: 0, offsetTop: 0 }
+    ),
+    { sourceX: 200, sourceY: 100, sourceWidth: 600, sourceHeight: 400 }
+  );
+}
+
+{
+  assert.deepEqual(
+    cropGeometry(
+      { width: 1000, height: 500 },
+      { left: -10, top: -5, width: 20, height: 15 },
+      { width: 1000, height: 500, offsetLeft: 0, offsetTop: 0 }
+    ),
+    { sourceX: 0, sourceY: 0, sourceWidth: 10, sourceHeight: 10 }
+  );
+}
+
+{
+  assert.deepEqual(
+    cropGeometry(
+      { width: 1500, height: 900 },
+      { left: 10.25, top: 20.25, width: 100.5, height: 50.5 },
+      { width: 1000, height: 600, offsetLeft: 0.5, offsetTop: 0.25 }
+    ),
+    { sourceX: 16, sourceY: 31, sourceWidth: 151, sourceHeight: 76 }
+  );
+}
+
+{
+  const libraryRule = styles.match(/\.justsnap-library\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(libraryRule, /overflow:\s*visible/);
+  assert.doesNotMatch(libraryRule, /overflow-[xy]:/);
+  assert.doesNotMatch(libraryRule, /max-height:/);
+}
+
+{
+  assert.equal(validatedImportUrl("https://example.com/image.png").hostname, "example.com");
+  for (const blocked of [
+    "http://localhost/image.png",
+    "http://127.0.0.1/image.png",
+    "http://10.0.0.1/image.png",
+    "http://169.254.1.1/image.png",
+    "http://192.0.2.1/image.png",
+    "http://[::1]/image.png",
+    "http://[fd00::1]/image.png",
+    "https://user:secret@example.com/image.png"
+  ]) {
+    assert.throws(() => validatedImportUrl(blocked));
+  }
+}
+
+{
+  let requestOptions: RequestInit | undefined;
+  const blob = await fetchImageForImport("https://example.com/image.png", (async (_input, options) => {
+    requestOptions = options;
+    return new Response(new Uint8Array([1, 2, 3]), {
+      status: 200,
+      headers: { "content-type": "image/png", "content-length": "3" }
+    });
+  }) as typeof fetch);
+  assert.equal(blob.size, 3);
+  assert.equal(requestOptions?.redirect, "manual");
+  assert.equal(requestOptions?.credentials, "omit");
+}
+
+{
+  let calls = 0;
+  await assert.rejects(() => fetchImageForImport("https://example.com/image.png", (async () => {
+    calls += 1;
+    return new Response(null, { status: 302, headers: { location: "http://127.0.0.1/private.png" } });
+  }) as typeof fetch));
+  assert.equal(calls, 1);
+}
+
+{
+  await assert.rejects(() => fetchImageForImport("https://example.com/image.png", (async () =>
+    new Response(new Uint8Array([1]), {
+      status: 200,
+      headers: { "content-type": "image/png", "content-length": String(MAX_IMPORT_BYTES + 1) }
+    })) as typeof fetch));
+}
+
+{
   assert.equal(dockInfluence(4, null), 0);
   assert.equal(dockInfluence(4, 4), 1);
   assert.equal(dockInfluence(3, 4), 0.28);
@@ -28,6 +179,23 @@ const base = normalizeLibrary({
   assert.equal(dockInfluence(2, 4), 0.12);
   assert.equal(dockInfluence(6, 4), 0.12);
   assert.equal(dockInfluence(1, 4), 0);
+}
+
+{
+  const crowded = dockLayoutForCount(100, 420);
+  assert.equal(crowded.baseSize, 8);
+  assert.equal(crowded.gap, 4);
+}
+
+{
+  const deliveryCaptures = Array.from({ length: 20 }, (_, index) => capture(`delivery-${index}`));
+  const blobs = new Map(deliveryCaptures.map((entry) => [entry.id, new Blob([entry.id], { type: "image/png" })]));
+  const captureIds = deliveryCaptures.map((entry) => entry.id);
+  const files = filesForDelivery(captureIds, deliveryCaptures, blobs);
+  assert.equal(files?.length, 20);
+  assert.deepEqual(files?.map((file) => file.size), captureIds.map((id) => id.length));
+  blobs.delete(captureIds[19]);
+  assert.equal(filesForDelivery(captureIds, deliveryCaptures, blobs), undefined);
 }
 
 {
@@ -218,6 +386,13 @@ const base = normalizeLibrary({
   assert.deepEqual(deleted.captures.map((entry) => entry.id), ["c"]);
   assert.deepEqual(deleted.groups, []);
   assert.deepEqual(deleted.railOrder, [{ kind: "capture", id: "c" }]);
+
+  const restored = restoreDeletedGroup(deleted, grouped.groups[0], grouped.captures.slice(0, 2), 0);
+  assert.deepEqual(restored.groups[0].captureIds, ["a", "b"]);
+  assert.deepEqual(restored.railOrder, [
+    { kind: "group", id: "delete-me" },
+    { kind: "capture", id: "c" }
+  ]);
 }
 
 {
@@ -241,6 +416,21 @@ const base = normalizeLibrary({
   assert.equal(pending.docks[0].order.length, 0);
   assert.equal(pending.railOrder.length, 0);
   assert.equal(normalizeLibrary(pending).railOrder.length, 0);
+}
+
+{
+  const initial = normalizeLibrary({ captures: [], groups: [], railOrder: [] });
+  const firstPending = addCapture(initial, capture("pending-a"), false);
+  const secondPending = addCapture(firstPending, capture("pending-b"), false);
+  const whileSessionIsActive = revealUnownedCaptures(secondPending, ["pending-a", "pending-b"]);
+  assert.deepEqual(whileSessionIsActive.railOrder, []);
+
+  const afterSessionIsLost = revealUnownedCaptures(whileSessionIsActive);
+  assert.deepEqual(afterSessionIsLost.railOrder, [
+    { kind: "capture", id: "pending-b" },
+    { kind: "capture", id: "pending-a" }
+  ]);
+  assert.deepEqual(revealUnownedCaptures(afterSessionIsLost).railOrder, afterSessionIsLost.railOrder);
 }
 
 console.log("DockSnip domain tests passed.");

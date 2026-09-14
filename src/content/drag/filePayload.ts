@@ -1,16 +1,26 @@
-export async function copyFilesToClipboard(files: File[]): Promise<void> {
-  if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") return;
+export async function copyFilesToClipboard(files: File[]): Promise<boolean> {
+  if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") return false;
   try {
     const items = files.map((file) => new ClipboardItem({ [file.type || "image/png"]: file }));
     await navigator.clipboard.write(items);
+    return true;
   } catch {
-    // Drag-to-paste still tries synthetic paste/drop when clipboard writes are blocked.
+    return false;
   }
 }
 
 export function captureFileForDrag(blob: Blob | undefined): File | undefined {
   if (!blob) return undefined;
-  return new File([blob], "image.png", { type: blob.type || "image/png" });
+  const type = blob.type || "image/png";
+  return new File([blob], `image.${extensionForImageType(type)}`, { type });
+}
+
+function extensionForImageType(type: string): string {
+  if (type === "image/jpeg") return "jpg";
+  if (type === "image/webp") return "webp";
+  if (type === "image/gif") return "gif";
+  if (type === "image/avif") return "avif";
+  return "png";
 }
 
 export function dragPreviewElement(target: EventTarget, kind: "capture" | "group"): Element | undefined {

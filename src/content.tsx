@@ -16,6 +16,7 @@ import { groupContaining } from "../shared/libraryModel";
 import { dockLayoutForCount } from "./content/dockLayout";
 import { DockFrame } from "./content/docks/DockFrame";
 import { captureFileForDrag, copyFilesToClipboard, dragPreviewElement } from "./content/drag/filePayload";
+import { deliveryCaptureKey, filesForDelivery } from "./content/drag/deliveryPreparation";
 import { placeFilesInCurrentPage } from "./content/drag/pageInsert";
 import { LibraryView } from "./content/rail/LibraryView";
 import { styles } from "./content/styles";
@@ -29,6 +30,7 @@ import type {
   CaptureSelectionResult,
   CaptureSessionSnapshot,
   ContentMessage,
+  GroupDeletionResult,
   LibraryState,
   LibraryMutation,
   RailOrderItem
@@ -40,6 +42,7 @@ const RAIL_CONTROL_ENTRY_COUNT = 3;
 const MAX_BLOB_CACHE_ENTRIES = 16;
 const SNIP_RETREAT_DISTANCE = 80;
 const SNIP_RETURN_DISTANCE = 150;
+const TOOLBAR_NOTICE_MS = 10_000;
 
 type DockInputMode = "dock" | "snip";
 
@@ -121,7 +124,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
   const [railOrder, setRailOrder] = useState<RailOrderItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [inputMode, setInputMode] = useState<DockInputMode>("dock");
-  const [captureHidden, setCaptureHidden] = useState(false);
+  const [captureFrameClean, setCaptureFrameClean] = useState(false);
   const [captureSession, setCaptureSession] = useState<CaptureSessionSnapshot | null>(null);
   const [activeAddTarget, setActiveAddTarget] = useState<CaptureAddTarget | null>(null);
   const [pendingAddCaptureIds, setPendingAddCaptureIds] = useState<string[]>([]);
@@ -129,10 +132,18 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
   const [start, setStart] = useState<Point | null>(null);
   const [current, setCurrent] = useState<Point | null>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [pendingGroupDeletion, setPendingGroupDeletion] = useState<{
+    deletionId: string;
+    expiresAt: number;
+  } | null>(null);
   const [dragging, setDragging] = useState<InternalDrag | null>(null);
   const [blobCache, setBlobCache] = useState<Record<string, Blob>>({});
   const blobCacheRef = useRef<Record<string, Blob>>({});
   const blobLoadRef = useRef(new Map<string, Promise<Blob | undefined>>());
+  const preparedDeliveryRef = useRef<{ key: string; blobs: Map<string, Blob> } | null>(null);
+  const preparationRevisionRef = useRef(0);
+  const [preparedDeliveryKey, setPreparedDeliveryKey] = useState("");
   const [recentlyAddedCaptureId, setRecentlyAddedCaptureId] = useState<string | null>(null);
   const pendingDragPayload = useRef<DragPayload | null>(null);
   const lastDragPoint = useRef<Point | null>(null);
@@ -189,16 +200,22 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
         window.clearTimeout(pageImageSavedTimerRef.current);
       }
       blobLoadRef.current.clear();
+      preparedDeliveryRef.current = null;
     },
     []
   );
 
   const requireCaptureBlobs = useCallback(async (captureIds: string[]) => {
+    const key = deliveryCaptureKey(captureIds);
+    if (preparedDeliveryRef.current?.key === key) return;
+    const preparationRevision = ++preparationRevisionRef.current;
     const requested = new Set(captureIds);
-    const missing = captures.filter((capture) => requested.has(capture.id) && !blobCacheRef.current[capture.id]);
-    if (!missing.length) return;
+    const requestedCaptures = captures.filter((capture) => requested.has(capture.id));
+    if (requestedCaptures.length !== requested.size) return;
     const loadedEntries = await Promise.all(
-      missing.map(async (capture) => {
+      requestedCaptures.map(async (capture) => {
+        const cached = blobCacheRef.current[capture.id];
+        if (cached) return [capture.id, cached] as const;
         let load = blobLoadRef.current.get(capture.id);
         if (!load) {
           load = loadCaptureBlob(capture.imageBlobKey).finally(() => {
@@ -210,6 +227,11 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
         return blob ? ([capture.id, blob] as const) : undefined;
       })
     );
+    if (preparationRevisionRef.current !== preparationRevision) return;
+    const completeEntries = loadedEntries.filter((entry): entry is readonly [string, Blob] => Boolean(entry));
+    if (completeEntries.length !== captureIds.length) return;
+    preparedDeliveryRef.current = { key, blobs: new Map(completeEntries) };
+    setPreparedDeliveryKey(key);
     addToBlobCache(loadedEntries);
   }, [addToBlobCache, captures]);
 
@@ -235,6 +257,24 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
   }, [recentlyAddedCaptureId]);
 
   useEffect(() => {
+    if (!error) return;
+    const timer = window.setTimeout(() => setError(""), TOOLBAR_NOTICE_MS);
+    return () => window.clearTimeout(timer);
+  }, [error]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const delay = pendingGroupDeletion
+      ? Math.max(0, pendingGroupDeletion.expiresAt - Date.now())
+      : TOOLBAR_NOTICE_MS;
+    const timer = window.setTimeout(() => {
+      setPendingGroupDeletion(null);
+      setNotice("");
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [notice, pendingGroupDeletion]);
+
+  useEffect(() => {
     captureSessionRef.current = captureSession;
   }, [captureSession]);
 
@@ -244,7 +284,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
   }, [current, start]);
 
   const captureSelection = async (rect: Rect, sessionId = captureSessionRef.current?.sessionId) => {
-    flushSync(() => setCaptureHidden(true));
+    flushSync(() => setCaptureFrameClean(true));
     await waitForCleanCaptureFrame();
     try {
       return await sendBackground<CaptureSelectionResult>({
@@ -254,7 +294,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
         viewport: viewportMetrics()
       });
     } finally {
-      setCaptureHidden(false);
+      setCaptureFrameClean(false);
       setSnipDockRetreated(false);
       snipDockLatchedRef.current = false;
       snipDockOriginRectRef.current = null;
@@ -274,7 +314,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
     } catch (captureError) {
       setError(errorText(captureError));
     } finally {
-      setCaptureHidden(false);
+      setCaptureFrameClean(false);
     }
   };
 
@@ -422,7 +462,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
     setInputMode("dock");
     setStart(null);
     setCurrent(null);
-    setCaptureHidden(false);
+    setCaptureFrameClean(false);
     setSnipDockRetreated(false);
     snipDockLatchedRef.current = false;
     snipDockOriginRectRef.current = null;
@@ -498,14 +538,13 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
   ) => {
     const transfer = event.dataTransfer;
     void requireCaptureBlobs(captureIds);
-    const dragCaptures = captureIds
-      .map((id) => captures.find((capture) => capture.id === id))
-      .filter(Boolean) as Capture[];
-    const files = dragCaptures
-      .map((capture) => captureFileForDrag(blobCache[capture.id]))
-      .filter(Boolean) as File[];
+    const key = deliveryCaptureKey(captureIds);
+    const prepared = preparedDeliveryRef.current?.key === key
+      ? preparedDeliveryRef.current.blobs
+      : new Map(Object.entries(blobCacheRef.current));
+    const files = filesForDelivery(captureIds, captures, prepared);
 
-    if (!files.length) {
+    if (!files?.length) {
       event.preventDefault();
       setDragging(null);
       setError("Image data is still loading. Try again in a moment.");
@@ -515,15 +554,41 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
     setDragging(drag);
     pendingDragPayload.current = { files };
     lastDragPoint.current = { x: event.clientX, y: event.clientY };
-    void copyFilesToClipboard(files);
     transfer.clearData();
     transfer.effectAllowed = "copy";
     transfer.dropEffect = "copy";
     transfer.setData("application/x-justsnap", JSON.stringify(drag));
+    for (const file of files) {
+      try {
+        transfer.items.add(file);
+      } catch {
+        // The current-page delivery adapter still runs on drag end when a browser
+        // refuses to expose programmatically-created file items.
+      }
+    }
 
     const dragImage = dragPreviewElement(event.currentTarget, drag.kind);
     if (dragImage) transfer.setDragImage(dragImage, 24, 24);
 
+  };
+
+  const copyCapture = async (captureId: string) => {
+    setError("");
+    setNotice("");
+    const capture = captures.find((entry) => entry.id === captureId);
+    if (!capture) return;
+    const blob = blobCacheRef.current[captureId] ?? await loadCaptureBlob(capture.imageBlobKey);
+    const file = captureFileForDrag(blob);
+    if (!file) {
+      setError("Could not load that image for copying.");
+      return;
+    }
+    addToBlobCache([[captureId, blob]]);
+    if (!await copyFilesToClipboard([file])) {
+      setError("Clipboard access was blocked. Try copying again from the Dock.");
+      return;
+    }
+    setNotice("Copied image to clipboard.");
   };
 
   const finishItemDrag = async (event: React.DragEvent) => {
@@ -596,7 +661,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
     await runLibraryMutation({
       type: "create_group",
       groupId: crypto.randomUUID(),
-      name: "New collection",
+      name: "New folder",
       createdAt: Date.now(),
       sourceCaptureId,
       targetCaptureId
@@ -637,7 +702,24 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
       for (const captureId of captureIds) delete next[captureId];
       return next;
     });
-    await runLibraryMutation({ type: "delete_group", groupId });
+    const result = await sendBackground<GroupDeletionResult>({ type: "JUSTSNAP_DELETE_GROUP", groupId });
+    applyLibraryState(result.library);
+    if (result.deletionId && result.expiresAt) {
+      setPendingGroupDeletion({ deletionId: result.deletionId, expiresAt: result.expiresAt });
+      setNotice("Folder deleted.");
+    }
+  };
+
+  const undoGroupDeletion = async () => {
+    const deletion = pendingGroupDeletion;
+    if (!deletion) return;
+    const library = await sendBackground<LibraryState>({
+      type: "JUSTSNAP_UNDO_GROUP_DELETE",
+      deletionId: deletion.deletionId
+    });
+    applyLibraryState(library);
+    setPendingGroupDeletion(null);
+    setNotice("Folder restored.");
   };
 
   const removeCapture = async (captureId: string) => {
@@ -676,6 +758,8 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
     blobCacheRef.current = {};
     blobLoadRef.current.clear();
     await runLibraryMutation({ type: "clear_library" });
+    setPendingGroupDeletion(null);
+    setNotice("");
     setClearDockPending(false);
   };
 
@@ -874,7 +958,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
   const shortcutModifier = platformShortcutModifier();
   const destinationLabel = activeAddTarget
     ? activeAddTarget.kind === "group"
-      ? groups.find((group) => group.id === activeAddTarget.id)?.name ?? "folder"
+      ? "folder"
       : "image"
     : null;
   const toolbarTitle = destinationLabel ? `Adding to ${destinationLabel}` : "Add images to your dock";
@@ -915,8 +999,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
         ref={dockRef}
         className={[
           railInteractionActive ? "justsnap-rail-expanded" : "",
-          captureMode && snipDockRetreated ? "justsnap-snip-surface-retreated justsnap-snip-dock-retreated" : "",
-          captureHidden ? "justsnap-capture-ui-hidden" : ""
+          captureMode && snipDockRetreated ? "justsnap-snip-surface-retreated justsnap-snip-dock-retreated" : ""
         ].filter(Boolean).join(" ")}
         style={railStyle}
         draggedItem={draggedRailItem}
@@ -958,10 +1041,12 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
           onDropIntent={applyRailDropIntent}
           onRemoveGroup={removeGroup}
           onRemoveCapture={removeCapture}
+          onCopyCapture={(captureId) => void copyCapture(captureId)}
           onAddToGroup={(groupId) => void startAddMode({ kind: "group", id: groupId })}
           onAddToCapture={(captureId) => void startAddMode({ kind: "capture", id: captureId })}
           onInteractionChange={setRailInteractionActive}
           onRequireCaptures={requireCaptureBlobs}
+          preparedDeliveryKey={preparedDeliveryKey}
         />
       </DockFrame>
 
@@ -981,6 +1066,18 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
 
       {error && (
         <ToolbarNotice tone="error" message={friendlyErrorMessage(error)} onDismiss={() => setError("")} />
+      )}
+      {!error && notice && (
+        <ToolbarNotice
+          tone="info"
+          message={notice}
+          actionLabel={pendingGroupDeletion ? "Undo" : undefined}
+          onAction={pendingGroupDeletion ? () => void undoGroupDeletion() : undefined}
+          onDismiss={() => {
+            setPendingGroupDeletion(null);
+            setNotice("");
+          }}
+        />
       )}
 
       {pageImageAffordance && !captureMode && (
@@ -1037,7 +1134,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
 
       {captureMode && (
         <div
-          className={["justsnap-capture-layer", captureHidden ? "justsnap-capture-frame-clean" : ""].join(" ")}
+          className={["justsnap-capture-layer", captureFrameClean ? "justsnap-capture-frame-clean" : ""].join(" ")}
           onPointerDown={beginSelection}
           onPointerMove={(event) => {
             updateSnipDockProximity(event);
@@ -1045,13 +1142,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
           }}
           onPointerUp={finishSelection}
         >
-          <div
-            className={[
-              "justsnap-capture-toolbar",
-              captureHidden ? "justsnap-capture-ui-hidden" : ""
-            ].join(" ")}
-            onPointerDown={(event) => event.stopPropagation()}
-          >
+          <div className="justsnap-capture-toolbar" onPointerDown={(event) => event.stopPropagation()}>
             {toolbarDestinationCaptures.length > 0 && (
               <ToolbarDestinationPreview captures={toolbarDestinationCaptures} />
             )}
@@ -1108,10 +1199,14 @@ function ToolbarActions({
 function ToolbarNotice({
   tone,
   message,
+  actionLabel,
+  onAction,
   onDismiss
 }: {
   tone: "error" | "info";
   message: string;
+  actionLabel?: string;
+  onAction?: () => void;
   onDismiss: () => void;
 }) {
   const Icon = tone === "error" ? AlertCircle : Info;
@@ -1123,7 +1218,7 @@ function ToolbarNotice({
     >
       <Icon className="justsnap-toolbar-notice-icon" size={17} aria-hidden="true" />
       <p className="justsnap-toolbar-notice-message">{message}</p>
-      <button className="justsnap-toolbar-notice-action" onClick={onDismiss}>OK</button>
+      <button className="justsnap-toolbar-notice-action" onClick={onAction ?? onDismiss}>{actionLabel ?? "OK"}</button>
     </section>
   );
 }

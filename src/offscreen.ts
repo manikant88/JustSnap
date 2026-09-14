@@ -1,4 +1,5 @@
 import type { CaptureImage, CaptureSelectionRect, CaptureViewport } from "../shared/types";
+import { cropGeometry } from "../shared/cropGeometry";
 
 type OffscreenCropRequest = {
   type: "JUSTSNAP_OFFSCREEN_CROP";
@@ -82,11 +83,11 @@ function isPositiveDimension(value: unknown): value is number {
 
 async function cropSelection(request: OffscreenCropRequest): Promise<OffscreenCropResult> {
   const image = await loadImage(request.screenshotDataUrl);
-  const scale = Math.min(image.naturalWidth / request.viewport.width, image.naturalHeight / request.viewport.height);
-  const sourceX = Math.max(0, Math.round((request.rect.left + request.viewport.offsetLeft) * scale));
-  const sourceY = Math.max(0, Math.round((request.rect.top + request.viewport.offsetTop) * scale));
-  const sourceWidth = Math.min(image.naturalWidth - sourceX, Math.round(request.rect.width * scale));
-  const sourceHeight = Math.min(image.naturalHeight - sourceY, Math.round(request.rect.height * scale));
+  const { sourceX, sourceY, sourceWidth, sourceHeight } = cropGeometry(
+    { width: image.naturalWidth, height: image.naturalHeight },
+    request.rect,
+    request.viewport
+  );
   const crop = renderImage(image, sourceWidth, sourceHeight, 0.92, {
     sourceX,
     sourceY,

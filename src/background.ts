@@ -1,4 +1,4 @@
-import { captureImageToBlob, deleteImageBlob, getImageBlob, saveImageBlob } from "../shared/blobStore";
+import { captureImageToBlob, deleteImageBlob, getImageBlob } from "../shared/blobStore";
 import { parseStoredCaptureSession } from "../shared/sessionModel";
 import type { ActiveCaptureSession } from "../shared/sessionModel";
 import type {
@@ -9,10 +9,20 @@ import type {
   CaptureImage,
   CaptureSelectionResult,
   ContentMessage,
+  GroupDeletionResult,
   LibraryMutation,
   RailOrderItem
 } from "../shared/types";
-import { insertCapture, mutateLibrary, readLibrary, updateLibrary } from "./libraryRepository";
+import {
+  mutateLibrary,
+  readLibrary,
+  recoverUnownedCaptures,
+  stageGroupDeletion,
+  undoGroupDeletion,
+  updateLibrary
+} from "./libraryRepository";
+import { imageStore } from "./imageStore";
+import { fetchImageForImport, MAX_IMPORT_BYTES } from "./imageImporter";
 
 let railFollowEnabled = false;
 let activeRailTabId: number | undefined;
@@ -34,8 +44,6 @@ type OffscreenPreparedImage = {
   thumbnail: CaptureImage;
 };
 
-const MAX_IMPORT_BYTES = 50 * 1024 * 1024;
-const SUPPORTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"]);
 const THUMBNAIL_RENDER_VERSION = 2;
 let thumbnailRepairPromise: Promise<void> | undefined;
 
@@ -179,6 +187,14 @@ async function handleMessage(request: BackgroundRequest, sender: chrome.runtime.
       return { ok: true, data: blob ? await blobToDataUrl(blob) : null };
     }
 
+    if (request.type === "JUSTSNAP_DELETE_GROUP") {
+      return { ok: true, data: await stageGroupDeletion(request.groupId) satisfies GroupDeletionResult };
+    }
+
+    if (request.type === "JUSTSNAP_UNDO_GROUP_DELETE") {
+      return { ok: true, data: await undoGroupDeletion(request.deletionId) };
+    }
+
     if (request.type === "JUSTSNAP_MUTATE_LIBRARY") {
       return { ok: true, data: await mutateLibrary(request.mutation) };
     }
@@ -218,6 +234,10 @@ async function startCaptureOnTab(tab: chrome.tabs.Tab | undefined, addTarget?: C
 async function prepareCaptureSession(tab: chrome.tabs.Tab | undefined, addTarget?: CaptureAddTarget) {
   if (!tab?.id) throw new Error("No active tab available.");
   if (isRestrictedTabUrl(tab.url)) throw new Error(restrictedPageMessage(tab.url));
+
+  if (captureSession) {
+    await finishCaptureSession(captureSession.id);
+  }
 
   captureSession = {
     id: crypto.randomUUID(),
@@ -262,7 +282,9 @@ async function showOnlyOnTab(
 async function closeRailEverywhere(): Promise<void> {
   railFollowEnabled = false;
   railLifecycleRevision += 1;
-  captureSession = undefined;
+  if (captureSession) {
+    await finishCaptureSession(captureSession.id);
+  }
   activeRailTabId = undefined;
   await persistRuntimeState();
   const tabs = await chrome.tabs.query({});
@@ -274,26 +296,12 @@ function isRailLifecycleCurrent(expectedRevision: number): boolean {
 }
 
 async function importImageUrl(request: Extract<BackgroundRequest, { type: "JUSTSNAP_IMPORT_IMAGE_URL" }>): Promise<Capture> {
-  assertSupportedImageUrl(request.imageUrl);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
-  const response = await fetch(request.imageUrl, { signal: controller.signal }).finally(() => clearTimeout(timeout));
-  if (!response.ok) throw new Error("Could not load that image.");
-  assertSupportedImageUrl(response.url);
-  const declaredLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_IMPORT_BYTES) {
-    throw new Error("That image is larger than the 50 MB import limit.");
-  }
-  const blob = await response.blob();
-  if (blob.size > MAX_IMPORT_BYTES) throw new Error("That image is larger than the 50 MB import limit.");
-  if (!SUPPORTED_IMAGE_TYPES.has(blob.type.toLowerCase())) throw new Error("That image format is not supported.");
+  const blob = await fetchImageForImport(request.imageUrl);
 
   const sourceDataUrl = await blobToDataUrl(blob);
   const { width, height, thumbnail } = await prepareImageWithOffscreen(sourceDataUrl);
   const id = crypto.randomUUID();
   const imageBlobKey = `capture-${id}`;
-  await saveImageBlob(imageBlobKey, blob);
-
   const capture: Capture = {
     id,
     createdAt: Date.now(),
@@ -303,7 +311,7 @@ async function importImageUrl(request: Extract<BackgroundRequest, { type: "JUSTS
     thumbnailVersion: THUMBNAIL_RENDER_VERSION,
     imageBlobKey
   };
-  await insertCapture(capture);
+  await imageStore.putCapture(capture, blob);
   return capture;
 }
 
@@ -320,8 +328,6 @@ async function captureSelection(
   const id = crypto.randomUUID();
   const imageBlobKey = `capture-${id}`;
   const blob = await captureImageToBlob(crop);
-  await saveImageBlob(imageBlobKey, blob);
-
   const capture: Capture = {
     id,
     createdAt: Date.now(),
@@ -340,7 +346,7 @@ async function captureSelection(
   }
   const shouldKeepOutOfTopLevelOrder = Boolean(isCurrentSession && captureSession?.addTarget);
 
-  await insertCapture(capture, !shouldKeepOutOfTopLevelOrder);
+  await imageStore.putCapture(capture, blob, !shouldKeepOutOfTopLevelOrder);
 
   return { capture, session: sessionSnapshotResult };
 }
@@ -440,30 +446,34 @@ async function finishCaptureSession(sessionId: string): Promise<{ groupId?: stri
   captureSession = undefined;
   await persistRuntimeState();
 
-  const library = await readLibrary();
-  const captureIds = sessionCaptureIds.filter((captureId) =>
-    library.captures.some((capture) => capture.id === captureId)
-  );
-  if (!captureIds.length) {
-    return { captureIds };
-  }
-
-  if (addTarget?.kind === "group") {
-    const targetGroup = library.groups.find((group) => group.id === addTarget.id);
-    if (!targetGroup) return { captureIds };
-    for (const captureId of captureIds) {
-      await mutateLibrary({ type: "add_capture_to_group", captureId, groupId: targetGroup.id });
+  try {
+    const library = await readLibrary();
+    const captureIds = sessionCaptureIds.filter((captureId) =>
+      library.captures.some((capture) => capture.id === captureId)
+    );
+    if (!captureIds.length) {
+      return { captureIds };
     }
-    return { groupId: targetGroup.id, captureIds };
-  }
 
-  if (addTarget?.kind === "capture") {
-    const targetCapture = library.captures.find((capture) => capture.id === addTarget.id);
-    if (!targetCapture) return { captureIds };
-    return await createGroupFromCaptures([targetCapture.id, ...captureIds], "Added captures");
-  }
+    if (addTarget?.kind === "group") {
+      const targetGroup = library.groups.find((group) => group.id === addTarget.id);
+      if (!targetGroup) return { captureIds };
+      for (const captureId of captureIds) {
+        await mutateLibrary({ type: "add_capture_to_group", captureId, groupId: targetGroup.id });
+      }
+      return { groupId: targetGroup.id, captureIds };
+    }
 
-  return { captureIds };
+    if (addTarget?.kind === "capture") {
+      const targetCapture = library.captures.find((capture) => capture.id === addTarget.id);
+      if (!targetCapture) return { captureIds };
+      return await createGroupFromCaptures([targetCapture.id, ...captureIds], "Added captures");
+    }
+
+    return { captureIds };
+  } finally {
+    await recoverUnownedCaptures();
+  }
 }
 
 async function cancelCaptureSession(sessionId: string): Promise<{ captureIds: string[] }> {
@@ -575,36 +585,6 @@ function restrictedPageMessage(url: string | undefined): string {
   return `DockSnip cannot run on ${scheme}:// pages. Try it on a normal website tab.`;
 }
 
-function assertSupportedImageUrl(value: string): void {
-  if (value.startsWith("data:image/")) {
-    if (value.length > Math.ceil(MAX_IMPORT_BYTES * 1.4)) throw new Error("That image is larger than the 50 MB import limit.");
-    return;
-  }
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error("That image URL is invalid.");
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("Only web images can be docked.");
-  }
-  if (isPrivateHostname(url.hostname)) {
-    throw new Error("Images from local or private-network addresses cannot be docked.");
-  }
-}
-
-function isPrivateHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (normalized === "localhost" || normalized.endsWith(".localhost") || normalized === "::1") return true;
-  const octets = normalized.split(".").map(Number);
-  if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-  return octets[0] === 10 || octets[0] === 127 || octets[0] === 0 ||
-    (octets[0] === 169 && octets[1] === 254) ||
-    (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
-    (octets[0] === 192 && octets[1] === 168);
-}
-
 function validateBackgroundRequest(value: unknown, sender: chrome.runtime.MessageSender): BackgroundRequest | undefined {
   if (!isTrustedSender(sender) || !isRecord(value) || typeof value.type !== "string") return undefined;
   switch (value.type) {
@@ -618,6 +598,14 @@ function validateBackgroundRequest(value: unknown, sender: chrome.runtime.Messag
       return isBoundedString(value.imageBlobKey, 160)
         ? { type: value.type, imageBlobKey: value.imageBlobKey }
         : undefined;
+    case "JUSTSNAP_DELETE_GROUP": {
+      const groupId = parseId(value.groupId);
+      return groupId ? { type: value.type, groupId } : undefined;
+    }
+    case "JUSTSNAP_UNDO_GROUP_DELETE": {
+      const deletionId = parseId(value.deletionId);
+      return deletionId ? { type: value.type, deletionId } : undefined;
+    }
     case "JUSTSNAP_START_CAPTURE_ACTIVE":
     case "JUSTSNAP_PREPARE_CAPTURE_SESSION": {
       const addTarget = value.addTarget === undefined ? undefined : parseAddTarget(value.addTarget);
@@ -651,8 +639,9 @@ function validateBackgroundRequest(value: unknown, sender: chrome.runtime.Messag
 
 function isTrustedSender(sender: chrome.runtime.MessageSender): boolean {
   if (sender.id !== chrome.runtime.id) return false;
+  if (sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`)) return true;
   if (sender.tab) return !isRestrictedTabUrl(sender.tab.url);
-  return Boolean(sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`));
+  return false;
 }
 
 function parseLibraryMutation(value: unknown): LibraryMutation | undefined {
@@ -745,15 +734,17 @@ function isPositiveDimension(value: unknown): value is number {
 async function ensureRuntimeState(): Promise<void> {
   if (runtimeStateLoaded) return;
   if (!runtimeStateLoadPromise) {
-    runtimeStateLoadPromise = chrome.storage.session.get(RUNTIME_STATE_KEY).then((result) => {
+    runtimeStateLoadPromise = (async () => {
+      const result = await chrome.storage.session.get(RUNTIME_STATE_KEY);
       const stored = result[RUNTIME_STATE_KEY];
       if (isRecord(stored)) {
         railFollowEnabled = stored.railFollowEnabled === true;
         activeRailTabId = typeof stored.activeRailTabId === "number" ? stored.activeRailTabId : undefined;
         captureSession = parseStoredCaptureSession(stored.captureSession);
       }
+      await recoverUnownedCaptures(captureSession?.captureIds ?? []);
       runtimeStateLoaded = true;
-    });
+    })();
   }
   await runtimeStateLoadPromise;
 }

@@ -182,6 +182,51 @@ export function addCapture(library: LibraryState, capture: Capture, topLevel = t
   return addTopLevelEntity(current, { kind: "capture", id: capture.id }, { captures });
 }
 
+export function revealUnownedCaptures(
+  library: LibraryState,
+  pendingCaptureIds: readonly string[] = []
+): LibraryState {
+  const current = normalizeLibrary(library);
+  const pending = new Set(pendingCaptureIds);
+  const owned = new Set(current.groups.flatMap((group) => group.captureIds));
+  for (const item of current.railOrder) {
+    if (item.kind === "capture") owned.add(item.id);
+  }
+  const recovered = current.captures
+    .filter((capture) => !owned.has(capture.id) && !pending.has(capture.id))
+    .map((capture) => ({ kind: "capture" as const, id: capture.id }));
+  if (!recovered.length) return current;
+  return normalizeLibrary(withActiveOrder(current, [...recovered, ...current.railOrder]));
+}
+
+export function restoreDeletedGroup(
+  library: LibraryState,
+  group: CaptureGroup,
+  captures: readonly Capture[],
+  railIndex: number
+): LibraryState {
+  const current = normalizeLibrary(library);
+  if (current.groups.some((entry) => entry.id === group.id)) return current;
+  const restoredCaptureIds = new Set(captures.map((capture) => capture.id));
+  const order = current.railOrder.filter(
+    (item) => item.kind !== "group" || item.id !== group.id
+  );
+  order.splice(Math.max(0, Math.min(railIndex, order.length)), 0, { kind: "group", id: group.id });
+  const docks = current.docks.map((dock) =>
+    dock.id === current.activeDockId ? { ...dock, order } : dock
+  );
+  return normalizeLibrary({
+    ...current,
+    captures: [
+      ...captures,
+      ...current.captures.filter((capture) => !restoredCaptureIds.has(capture.id))
+    ],
+    groups: [group, ...current.groups],
+    docks,
+    railOrder: order
+  });
+}
+
 export function groupContaining(groups: CaptureGroup[], captureId: string): CaptureGroup | undefined {
   return groups.find((group) => group.captureIds.includes(captureId));
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Folder, Plus, Trash2 } from "lucide-react";
+import { Copy, Folder, Plus, Trash2 } from "lucide-react";
 import type { Capture, CaptureAddTarget, CaptureGroup, RailOrderItem } from "../../../shared/types";
 import {
   dockCapturePreviewFrame,
@@ -14,6 +14,7 @@ import {
 import type { DockLayout } from "../dockLayout";
 import type { InternalDrag, RailDropIntent } from "../types";
 import { verticalDropZoneForElement } from "./dndIntent";
+import { deliveryCaptureKey } from "../drag/deliveryPreparation";
 
 type RailEntry =
   | { kind: "group"; group: CaptureGroup; captures: Capture[] }
@@ -34,10 +35,12 @@ export function LibraryView(props: {
   onDropIntent: (intent: RailDropIntent) => void;
   onRemoveGroup: (groupId: string) => void;
   onRemoveCapture: (captureId: string) => void;
+  onCopyCapture: (captureId: string) => void;
   onAddToGroup: (groupId: string) => void;
   onAddToCapture: (captureId: string) => void;
   onInteractionChange: (active: boolean) => void;
   onRequireCaptures: (captureIds: string[]) => void;
+  preparedDeliveryKey: string;
   presentationOnly?: boolean;
 }) {
   const libraryRef = useRef<HTMLDivElement | null>(null);
@@ -236,6 +239,7 @@ export function LibraryView(props: {
             group={entry.group}
             captures={entry.captures}
             blobCache={props.blobCache}
+            deliveryReady={props.preparedDeliveryKey === deliveryCaptureKey(entry.captures.map((capture) => capture.id))}
             focusedIndex={focusedIndex}
             active={interactive && (activeGroupId === entry.group.id || props.activeAddTarget?.id === entry.group.id)}
             presentationOnly={props.presentationOnly}
@@ -261,6 +265,7 @@ export function LibraryView(props: {
               props.onStartDrag(event, { kind: "capture", captureId: capture.id }, [capture.id])
             }
             onRemoveCapture={props.onRemoveCapture}
+            onCopyCapture={props.onCopyCapture}
           />
         ) : (
           <CaptureDockItem
@@ -295,6 +300,7 @@ export function LibraryView(props: {
               setHoveredIndex(null);
               props.onRemoveCapture(entry.capture.id);
             }}
+            onCopy={() => props.onCopyCapture(entry.capture.id)}
             onAdd={() => props.onAddToCapture(entry.capture.id)}
           />
         )
@@ -324,6 +330,7 @@ function CaptureDockItem(props: {
   onDropIntent: (intent: RailDropIntent) => void;
   setDropIntent: (intent: RailDropIntent | null) => void;
   onRemove: () => void;
+  onCopy: () => void;
   onAdd: () => void;
   presentationOnly?: boolean;
 }) {
@@ -390,7 +397,7 @@ function CaptureDockItem(props: {
         <button
           className="justsnap-dock-folder-button justsnap-dock-add-target-folder"
           style={{ width: frame.width, height: frame.height }}
-          aria-label="New collection"
+          aria-label="New folder"
           draggable={false}
           onFocus={() => props.setHoveredIndex(props.index)}
           onBlur={() => props.setHoveredIndex(null)}
@@ -440,18 +447,31 @@ function CaptureDockItem(props: {
         <Plus size={14} strokeWidth={2.4} />
       </button>}
       {!props.presentationOnly && isFocused && (
-        <button
-          className="justsnap-dock-remove"
-          aria-label="Remove capture"
-          onMouseDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            props.onRemove();
-            props.setHoveredIndex(null);
-          }}
-        >
-          <Trash2 size={14} strokeWidth={2.2} />
-        </button>
+        <>
+          <button
+            className="justsnap-dock-copy"
+            aria-label="Copy capture"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onCopy();
+            }}
+          >
+            <Copy size={14} strokeWidth={2.2} />
+          </button>
+          <button
+            className="justsnap-dock-remove"
+            aria-label="Remove capture"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onRemove();
+              props.setHoveredIndex(null);
+            }}
+          >
+            <Trash2 size={14} strokeWidth={2.2} />
+          </button>
+        </>
       )}
       {props.addFlyoutCaptures && (
         <AddTargetFlyout
@@ -487,7 +507,7 @@ function AddTargetFlyout(props: {
     <div
       ref={flyoutRef}
       className="justsnap-group-flyout justsnap-add-target-flyout"
-      aria-label="New collection captures"
+      aria-label="New folder captures"
       style={
         {
           gap: 0,
@@ -575,6 +595,7 @@ function GroupDockItem(props: {
   group: CaptureGroup;
   captures: Capture[];
   blobCache: Record<string, Blob>;
+  deliveryReady: boolean;
   focusedIndex: number | null;
   active: boolean;
   baseSize: number;
@@ -591,6 +612,7 @@ function GroupDockItem(props: {
   onAdd: () => void;
   onStartCaptureDrag: (event: React.DragEvent, capture: Capture) => void;
   onRemoveCapture: (captureId: string) => void;
+  onCopyCapture: (captureId: string) => void;
   presentationOnly?: boolean;
 }) {
   const influence = props.active ? 1 : dockInfluence(props.index, props.focusedIndex);
@@ -661,8 +683,8 @@ function GroupDockItem(props: {
       <button
         className="justsnap-dock-folder-button"
         style={{ width: size, height: size }}
-        aria-label={`${props.group.name}, ${props.captures.length} captures`}
-        draggable={props.presentationOnly || props.captures.every((capture) => props.blobCache[capture.id])}
+        aria-label={`Folder, ${props.captures.length} captures`}
+        draggable={props.presentationOnly || props.deliveryReady}
         onDragStart={props.onDragStart}
         onDragEnd={props.onDragEnd}
         onFocus={() => props.setHoveredIndex(props.index)}
@@ -697,7 +719,7 @@ function GroupDockItem(props: {
         <>
           <button
             className="justsnap-dock-remove"
-            aria-label="Remove group"
+            aria-label="Remove folder"
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => {
               event.stopPropagation();
@@ -710,7 +732,7 @@ function GroupDockItem(props: {
           <div
             ref={flyoutRef}
             className="justsnap-group-flyout"
-            aria-label={`${props.group.name} captures`}
+            aria-label="Folder captures"
             style={
               {
                 gap: 0,
@@ -740,6 +762,7 @@ function GroupDockItem(props: {
                 onDropIntent={props.onDropIntent}
                 setDropIntent={props.setDropIntent}
                 onRemove={() => props.onRemoveCapture(capture.id)}
+                onCopy={() => props.onCopyCapture(capture.id)}
               />
             ))}
           </div>
@@ -766,6 +789,7 @@ function GroupFlyoutDockItem(props: {
   onDropIntent: (intent: RailDropIntent) => void;
   setDropIntent: (intent: RailDropIntent | null) => void;
   onRemove: () => void;
+  onCopy: () => void;
 }) {
   const influence = dockInfluence(props.index, props.focusedIndex);
   const isFocused = props.focusedIndex === props.index;
@@ -819,7 +843,7 @@ function GroupFlyoutDockItem(props: {
       <button
         className={["justsnap-dock-image-button", props.blobReady ? "" : "justsnap-card-loading"].join(" ")}
         style={{ width: frame.width, height: frame.height }}
-        aria-label="Grouped DockSnip capture"
+        aria-label="Folder capture"
         draggable={props.blobReady}
         onDragStart={props.onDragStart}
         onDragEnd={props.onDragEnd}
@@ -830,18 +854,31 @@ function GroupFlyoutDockItem(props: {
         <img src={previewSource} alt="" />
       </button>
       {isFocused && (
-        <button
-          className="justsnap-dock-remove"
-          aria-label="Remove capture"
-          onMouseDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            props.onRemove();
-            props.setFocusedIndex(null);
-          }}
-        >
-          <Trash2 size={14} strokeWidth={2.2} />
-        </button>
+        <>
+          <button
+            className="justsnap-dock-copy"
+            aria-label="Copy capture"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onCopy();
+            }}
+          >
+            <Copy size={14} strokeWidth={2.2} />
+          </button>
+          <button
+            className="justsnap-dock-remove"
+            aria-label="Remove capture"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onRemove();
+              props.setFocusedIndex(null);
+            }}
+          >
+            <Trash2 size={14} strokeWidth={2.2} />
+          </button>
+        </>
       )}
     </div>
   );

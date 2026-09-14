@@ -1,6 +1,6 @@
 # DockSnip
 
-DockSnip is a local-first Chrome extension for capturing webpage regions, docking screenshots and images in a floating dock, grouping them, and dropping them wherever you work.
+DockSnip is a local-first Chrome extension for capturing webpage regions, keeping screenshots and images in a floating visual Dock, organizing them into flat Folders, and dragging copies into compatible destinations.
 
 Snip it. Dock it. Drop it.
 
@@ -12,6 +12,8 @@ npm run build
 ```
 
 Load the extension from `dist` in `chrome://extensions` with Developer mode enabled.
+
+DockSnip currently requires Chrome 150 or newer.
 
 ## MVP Notes
 

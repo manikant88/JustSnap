@@ -84,6 +84,12 @@ export type CaptureSelectionResult = {
   session: CaptureSessionSnapshot | null;
 };
 
+export type GroupDeletionResult = {
+  library: LibraryState;
+  deletionId?: string;
+  expiresAt?: number;
+};
+
 export type BackgroundRequest =
   | { type: "JUSTSNAP_TOGGLE_RAIL" }
   | { type: "JUSTSNAP_CLOSE_RAIL_GLOBAL" }
@@ -105,6 +111,8 @@ export type BackgroundRequest =
   | { type: "JUSTSNAP_CANCEL_CAPTURE_SESSION"; sessionId: string }
   | { type: "JUSTSNAP_GET_LIBRARY" }
   | { type: "JUSTSNAP_GET_IMAGE_DATA"; imageBlobKey: string }
+  | { type: "JUSTSNAP_DELETE_GROUP"; groupId: string }
+  | { type: "JUSTSNAP_UNDO_GROUP_DELETE"; deletionId: string }
   | { type: "JUSTSNAP_MUTATE_LIBRARY"; mutation: LibraryMutation };
 
 export type BackgroundResponse<T = unknown> =

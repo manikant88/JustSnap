@@ -1,10 +1,24 @@
 import { deleteImageBlob, listImageBlobKeys } from "../shared/blobStore";
-import { addCapture, applyLibraryMutation, normalizeLibrary } from "../shared/libraryModel";
+import {
+  addCapture,
+  applyLibraryMutation,
+  normalizeLibrary,
+  restoreDeletedGroup,
+  revealUnownedCaptures
+} from "../shared/libraryModel";
 import { getLibrary, saveLibrary } from "../shared/storage";
-import type { Capture, LibraryMutation, LibraryState } from "../shared/types";
+import type { Capture, CaptureGroup, GroupDeletionResult, LibraryMutation, LibraryState } from "../shared/types";
 
 let mutationQueue: Promise<unknown> = Promise.resolve();
 let integrityPromise: Promise<void> | undefined;
+const GROUP_DELETE_UNDO_MS = 10_000;
+type PendingGroupDeletion = {
+  group: CaptureGroup;
+  captures: Capture[];
+  railIndex: number;
+  timer: ReturnType<typeof setTimeout>;
+};
+const pendingGroupDeletions = new Map<string, PendingGroupDeletion>();
 
 export function readLibrary(): Promise<LibraryState> {
   return serialize(async () => {
@@ -20,6 +34,9 @@ function ensureLibraryIntegrity(): Promise<void> {
     const blobKeys = new Set(await listImageBlobKeys());
     const validCaptures = library.captures.filter((capture) => blobKeys.has(capture.imageBlobKey));
     const referenced = new Set(validCaptures.map((capture) => capture.imageBlobKey));
+    for (const deletion of pendingGroupDeletions.values()) {
+      for (const capture of deletion.captures) referenced.add(capture.imageBlobKey);
+    }
     const orphans = [...blobKeys].filter((key) => !referenced.has(key));
     if (validCaptures.length !== library.captures.length) {
       await saveLibrary(normalizeLibrary({ ...library, captures: validCaptures }));
@@ -45,6 +62,51 @@ export function mutateLibrary(mutation: LibraryMutation): Promise<LibraryState> 
 
 export function insertCapture(capture: Capture, topLevel = true): Promise<LibraryState> {
   return updateLibrary((library) => addCapture(library, capture, topLevel));
+}
+
+export function recoverUnownedCaptures(pendingCaptureIds: readonly string[] = []): Promise<LibraryState> {
+  return updateLibrary((library) => revealUnownedCaptures(library, pendingCaptureIds));
+}
+
+export function stageGroupDeletion(groupId: string): Promise<GroupDeletionResult> {
+  return serialize(async () => {
+    const current = await getLibrary();
+    const group = current.groups.find((entry) => entry.id === groupId);
+    if (!group) return { library: current };
+    const captureIds = new Set(group.captureIds);
+    const captures = current.captures.filter((capture) => captureIds.has(capture.id));
+    const railIndex = Math.max(0, current.railOrder.findIndex((item) => item.kind === "group" && item.id === groupId));
+    const library = applyLibraryMutation(current, { type: "delete_group", groupId });
+    await saveLibrary(library);
+
+    const deletionId = crypto.randomUUID();
+    const expiresAt = Date.now() + GROUP_DELETE_UNDO_MS;
+    const timer = setTimeout(() => void finalizeGroupDeletion(deletionId), GROUP_DELETE_UNDO_MS);
+    pendingGroupDeletions.set(deletionId, { group, captures, railIndex, timer });
+    return { library, deletionId, expiresAt };
+  });
+}
+
+export function undoGroupDeletion(deletionId: string): Promise<LibraryState> {
+  return serialize(async () => {
+    const deletion = pendingGroupDeletions.get(deletionId);
+    const current = await getLibrary();
+    if (!deletion) return current;
+    clearTimeout(deletion.timer);
+    pendingGroupDeletions.delete(deletionId);
+    const restored = restoreDeletedGroup(current, deletion.group, deletion.captures, deletion.railIndex);
+    await saveLibrary(restored);
+    return restored;
+  });
+}
+
+function finalizeGroupDeletion(deletionId: string): Promise<void> {
+  return serialize(async () => {
+    const deletion = pendingGroupDeletions.get(deletionId);
+    if (!deletion) return;
+    pendingGroupDeletions.delete(deletionId);
+    await Promise.all(deletion.captures.map((capture) => deleteImageBlob(capture.imageBlobKey).catch(() => undefined)));
+  });
 }
 
 export function updateLibrary(update: (library: LibraryState) => LibraryState): Promise<LibraryState> {

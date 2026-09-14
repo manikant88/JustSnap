@@ -2,12 +2,18 @@ export const styles = `
   :host, * { box-sizing: border-box; }
   :host {
     --docksnip-toolbar-width: min(620px, calc(100vw - 28px));
+    --docksnip-notice-width: min(420px, calc(100vw - 48px));
     --docksnip-panel-background: #111214;
     --docksnip-panel-border: #34373d;
     --docksnip-panel-shadow: 0 16px 38px rgba(0, 0, 0, 0.34);
     --docksnip-control-background: #25282e;
     --docksnip-control-hover: #30343b;
     --docksnip-control-border: #41454d;
+    --docksnip-success-background: #168642;
+    --docksnip-success-hover: #1a9950;
+    --docksnip-success-active: #127038;
+    --docksnip-success-border: rgba(74, 222, 128, 0.52);
+    --docksnip-success-ring: rgba(34, 197, 94, 0.2);
   }
   :host, :host * {
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
@@ -144,69 +150,78 @@ export const styles = `
   .justsnap-rail-control:disabled { opacity: 0.45; cursor: not-allowed; }
   .justsnap-toolbar-notice {
     position: fixed;
-    top: 76px;
+    top: 78px;
     left: 50%;
     translate: -50% 0;
     z-index: 2147483647;
-    width: var(--docksnip-toolbar-width);
-    min-height: 44px;
-    padding: 9px 9px 9px 14px;
-    border: 1px solid color-mix(in srgb, var(--docksnip-notice-accent) 46%, transparent);
-    border-radius: 18px;
+    width: var(--docksnip-notice-width);
+    min-height: 46px;
+    padding: 5px 6px 5px 8px;
+    border: 1px solid color-mix(in srgb, var(--docksnip-notice-accent) 48%, transparent);
+    border-radius: 999px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
-    background: var(--docksnip-panel-background);
+    gap: 8px;
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--docksnip-notice-accent) 10%, var(--docksnip-panel-background)) 0%,
+      var(--docksnip-panel-background) 38%
+    );
     color: #fff;
-    box-shadow: var(--docksnip-panel-shadow);
-    animation: docksnip-notice-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  }
-  .justsnap-toolbar-notice::before {
-    content: "";
-    width: 3px;
-    align-self: stretch;
-    flex: 0 0 auto;
-    border-radius: 999px;
-    background: var(--docksnip-notice-accent);
-    box-shadow: 0 0 12px color-mix(in srgb, var(--docksnip-notice-accent) 42%, transparent);
+    box-shadow:
+      var(--docksnip-panel-shadow),
+      0 0 0 1px color-mix(in srgb, var(--docksnip-notice-accent) 8%, transparent);
+    animation: docksnip-notice-enter 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
   .justsnap-toolbar-notice-error { --docksnip-notice-accent: #ff6961; }
   .justsnap-toolbar-notice-info { --docksnip-notice-accent: #55b8ff; }
   .justsnap-toolbar-notice-icon {
     flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    padding: 5px;
+    border: 1px solid color-mix(in srgb, var(--docksnip-notice-accent) 46%, transparent);
+    border-radius: 50%;
     color: var(--docksnip-notice-accent);
+    background: color-mix(in srgb, var(--docksnip-notice-accent) 11%, transparent);
+    box-shadow: 0 0 16px color-mix(in srgb, var(--docksnip-notice-accent) 12%, transparent);
+    animation: docksnip-notice-icon-pop 480ms 90ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
   .justsnap-toolbar-notice-message {
     flex: 1 1 auto;
     margin: 0;
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 650;
     line-height: 1.35;
     letter-spacing: 0;
   }
   .justsnap-toolbar-notice-action {
-    min-width: 42px;
-    height: 30px;
-    padding: 0 11px;
-    border: 1px solid var(--docksnip-control-border);
-    border-radius: 9px;
+    min-width: 44px;
+    height: 34px;
+    padding: 0 14px;
+    border: 1px solid color-mix(in srgb, var(--docksnip-notice-accent) 34%, var(--docksnip-control-border));
+    border-radius: 999px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
     color: #fff;
-    background: var(--docksnip-control-background);
+    background: color-mix(in srgb, var(--docksnip-notice-accent) 10%, var(--docksnip-control-background));
     font-size: 12px;
     font-weight: 700;
     line-height: 1;
     cursor: pointer;
+    transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, scale 140ms ease;
   }
   .justsnap-toolbar-notice-action:hover,
   .justsnap-toolbar-notice-action:focus-visible {
-    background: var(--docksnip-control-hover);
+    border-color: color-mix(in srgb, var(--docksnip-notice-accent) 66%, transparent);
+    background: color-mix(in srgb, var(--docksnip-notice-accent) 19%, var(--docksnip-control-hover));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--docksnip-notice-accent) 14%, transparent);
     outline: none;
   }
+  .justsnap-toolbar-notice-action:active { scale: 0.97; }
   .justsnap-page-image-add {
     position: fixed;
     z-index: 2147483645;
@@ -281,10 +296,10 @@ export const styles = `
   }
   .justsnap-page-image-add-saved {
     color: #fff;
-    background: #168642;
+    background: var(--docksnip-success-background);
     box-shadow:
       0 12px 28px rgba(3, 7, 18, 0.24),
-      0 0 0 4px rgba(34, 197, 94, 0.2);
+      0 0 0 4px var(--docksnip-success-ring);
   }
   .justsnap-page-image-add svg {
     width: 18px;
@@ -565,10 +580,10 @@ export const styles = `
     background: #f7f9fc;
     image-rendering: auto;
   }
-  .justsnap-dock-remove {
+  .justsnap-dock-remove,
+  .justsnap-dock-copy {
     position: absolute;
     top: calc(50% + var(--justsnap-preview-offset-y, 0px) - var(--justsnap-dock-item-half, 26px) + 7px);
-    right: 7px;
     z-index: 5;
     width: 24px !important;
     min-width: 24px !important;
@@ -585,11 +600,18 @@ export const styles = `
     line-height: 0;
     pointer-events: auto;
   }
+  .justsnap-dock-remove { right: 7px; }
+  .justsnap-dock-copy { left: 7px; }
   .justsnap-dock-remove:hover {
     color: #b42318;
     background: #fff !important;
   }
-  .justsnap-dock-remove svg {
+  .justsnap-dock-copy:hover {
+    color: #075985;
+    background: #fff !important;
+  }
+  .justsnap-dock-remove svg,
+  .justsnap-dock-copy svg {
     display: block;
     flex: 0 0 auto;
   }
@@ -648,11 +670,12 @@ export const styles = `
     top: 14px;
     left: 50%;
     translate: -50% 0;
-    width: var(--docksnip-toolbar-width);
+    width: fit-content;
+    max-width: calc(100vw - 28px);
     min-height: 56px;
     padding: 8px 8px 8px 18px;
     border: 1px solid var(--docksnip-panel-border);
-    border-radius: 22px;
+    border-radius: 999px;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -663,18 +686,15 @@ export const styles = `
     animation: docksnip-surface-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
     transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 140ms ease;
   }
+  .justsnap-capture-toolbar .justsnap-settings-button {
+    display: none !important;
+  }
   .justsnap-snip-surface-retreated {
     pointer-events: none !important;
   }
   .justsnap-snip-dock-retreated {
     transform: translateX(calc(100% + 16px));
     opacity: 0;
-  }
-  .justsnap-capture-ui-hidden {
-    visibility: hidden !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
-    transition: none !important;
   }
   .justsnap-capture-toolbar-copy {
     min-width: 0;
@@ -721,7 +741,7 @@ export const styles = `
     flex: 0 0 auto;
     padding: 3px;
     border: 1px solid #30343a;
-    border-radius: 13px;
+    border-radius: 999px;
     display: inline-flex;
     align-items: center;
     gap: 2px;
@@ -730,7 +750,7 @@ export const styles = `
   .justsnap-capture-toolbar .justsnap-capture-modes button {
     height: 30px;
     border: 0;
-    border-radius: 10px;
+    border-radius: 999px;
     color: rgba(255,255,255,0.72);
     background: transparent;
   }
@@ -769,8 +789,20 @@ export const styles = `
     grid-row: 1 / -1;
   }
   .justsnap-capture-toolbar .justsnap-capture-done {
-    background: #155f84;
-    border-color: rgba(125, 211, 252, 0.46);
+    background: var(--docksnip-success-background);
+    border-color: var(--docksnip-success-border);
+    box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.08);
+  }
+  .justsnap-capture-toolbar .justsnap-capture-done:hover,
+  .justsnap-capture-toolbar .justsnap-capture-done:focus-visible {
+    background: var(--docksnip-success-hover);
+    border-color: rgba(134, 239, 172, 0.7);
+    box-shadow: 0 0 0 3px var(--docksnip-success-ring);
+    outline: none;
+  }
+  .justsnap-capture-toolbar .justsnap-capture-done:active {
+    background: var(--docksnip-success-active);
+    scale: 0.98;
   }
   .justsnap-toolbar-actions {
     flex: 0 0 auto;
@@ -778,6 +810,8 @@ export const styles = `
     align-items: center;
     gap: 4px;
     padding-left: 8px;
+    padding-right: 0;
+    margin-right: 0;
     border-left: 1px solid rgba(255,255,255,0.1);
   }
   .justsnap-capture-toolbar .justsnap-toolbar-icon-button {
@@ -795,6 +829,8 @@ export const styles = `
   }
   .justsnap-capture-toolbar .justsnap-capture-close {
     width: 36px;
+    min-width: 36px;
+    border-radius: 50%;
     padding: 0;
     color: rgba(255, 255, 255, 0.78);
     background: var(--docksnip-control-background);
@@ -889,8 +925,19 @@ export const styles = `
     to { opacity: 1; scale: 1; }
   }
   @keyframes docksnip-notice-enter {
-    from { opacity: 0; translate: -50% -4px; }
-    to { opacity: 1; translate: -50% 0; }
+    0% { opacity: 0; translate: -50% -10px; scale: 0.97; }
+    62% {
+      opacity: 1;
+      translate: -50% 2px;
+      scale: 1.008;
+      box-shadow: var(--docksnip-panel-shadow), 0 0 0 4px color-mix(in srgb, var(--docksnip-notice-accent) 13%, transparent);
+    }
+    100% { opacity: 1; translate: -50% 0; scale: 1; }
+  }
+  @keyframes docksnip-notice-icon-pop {
+    0% { opacity: 0; scale: 0.72; rotate: -10deg; }
+    68% { opacity: 1; scale: 1.1; rotate: 2deg; }
+    100% { opacity: 1; scale: 1; rotate: 0deg; }
   }
   @keyframes docksnip-flyout-enter {
     from { opacity: 0; translate: 5px -50%; }
@@ -899,12 +946,15 @@ export const styles = `
   @media (max-width: 680px) {
     :host {
       --docksnip-toolbar-width: calc(100vw - 16px);
+      --docksnip-notice-width: min(420px, calc(100vw - 48px));
     }
     .justsnap-capture-toolbar {
+      width: calc(100vw - 16px);
+      max-width: calc(100vw - 16px);
       min-height: 52px;
       padding: 7px 7px 7px 12px;
       gap: 7px;
-      border-radius: 19px;
+      border-radius: 999px;
     }
     .justsnap-capture-toolbar-copy {
       max-width: none;
@@ -923,7 +973,7 @@ export const styles = `
       width: 32px;
       height: 32px;
     }
-    .justsnap-toolbar-notice,
+    .justsnap-toolbar-notice { padding: 5px 6px; }
     .justsnap-dock-delete-confirm {
       padding-left: 10px;
       border-radius: 16px;
@@ -946,6 +996,8 @@ export const styles = `
     .justsnap-rail,
     .justsnap-capture-toolbar,
     .justsnap-toolbar-notice,
+    .justsnap-toolbar-notice-icon,
+    .justsnap-toolbar-notice-action,
     .justsnap-group-flyout,
     .justsnap-dock-delete-confirm,
     .justsnap-dynamic-island-shape {
