@@ -3,12 +3,21 @@ export type PageInsertEnvironment = {
   isDockSnipNode: (node: Node) => boolean;
 };
 
+export function shouldSuppressNativePageDrop(options: {
+  hasPendingPayload: boolean;
+  isTrusted: boolean;
+  isDockSnipTarget: boolean;
+}): boolean {
+  return options.hasPendingPayload && options.isTrusted && !options.isDockSnipTarget;
+}
+
 export async function placeFilesInCurrentPage(
   files: File[],
   env: PageInsertEnvironment,
   preferredTarget?: Element
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (files.length > 1 && isWhatsAppOrigin(env.currentOrigin())) {
+  const origin = env.currentOrigin();
+  if (files.length > 1 && isWhatsAppOrigin(origin)) {
     const pasted = await pasteFilesIntoPage(files, env, preferredTarget);
     if (pasted) return { ok: true };
     return {
@@ -22,13 +31,20 @@ export async function placeFilesInCurrentPage(
     if (pasted) return { ok: true };
   }
 
+  const target = resolveInsertTarget(env, preferredTarget);
+  if (isChatGptOrigin(origin) && target) {
+    target.focus();
+    await nextAnimationFrame();
+    const dropped = dispatchDropWithFiles(target, files);
+    if (dropped) return { ok: true };
+  }
+
   const fileInput = findAttachmentInput(env, preferredTarget);
   if (fileInput) {
     const assigned = assignFilesToInput(fileInput, files);
     if (assigned) return { ok: true };
   }
 
-  const target = resolveInsertTarget(env, preferredTarget);
   if (target) {
     target.focus();
     await nextAnimationFrame();
@@ -77,6 +93,17 @@ function isWhatsAppOrigin(origin: string): boolean {
   return origin.includes("web.whatsapp.com");
 }
 
+function isChatGptOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname;
+    return hostname === "chatgpt.com"
+      || hostname.endsWith(".chatgpt.com")
+      || hostname === "chat.openai.com";
+  } catch {
+    return false;
+  }
+}
+
 function resolveInsertTarget(env: PageInsertEnvironment, target: Element | undefined): HTMLElement | undefined {
   if (!target || env.isDockSnipNode(target)) return undefined;
   if (target instanceof HTMLElement && isEditableTarget(target)) return target;
@@ -110,7 +137,6 @@ function assignFilesToInput(input: HTMLInputElement, files: File[]): boolean {
   try {
     input.value = "";
     input.files = filesToTransfer(files).files;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
     return input.files?.length === files.length;
   } catch {

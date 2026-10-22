@@ -3,15 +3,23 @@ import {
   addCapture,
   applyLibraryMutation,
   normalizeLibrary,
+  restoreClearedLibrary,
+  restoreDeletedCapture,
   restoreDeletedGroup,
   revealUnownedCaptures
 } from "../shared/libraryModel";
-import { parseStoredCaptureSession } from "../shared/sessionModel";
+import { contentMessageForRuntimeState, parseStoredCaptureSession } from "../shared/sessionModel";
 import { dockFolderSize, dockInfluence, dockLayoutForCount, dynamicIslandPath } from "../src/content/dockLayout";
+import { FOLDER_TONE_NAMES, folderToneForId, folderToneForSlot } from "../src/content/folderAppearance";
+import { FOLDER_COLOR_SLOT_COUNT } from "../shared/folderColor";
 import { insertionIndexForPointer, railInsertIntentForIndex } from "../src/content/rail/dndIntent";
 import { filesForDelivery } from "../src/content/drag/deliveryPreparation";
+import { prepareClipboardImages, prepareDeliveryImage } from "../src/content/drag/filePayload";
+import { friendlyErrorMessage, isInsertionFailure } from "../src/content/errorMessages";
+import { shouldSuppressNativePageDrop } from "../src/content/drag/pageInsert";
 import { fetchImageForImport, MAX_IMPORT_BYTES, validatedImportUrl } from "../src/imageImporter";
 import { styles } from "../src/content/styles";
+import { snipAvoidanceForSelection } from "../src/content/snipAvoidance";
 import { cropGeometry } from "../shared/cropGeometry";
 import { decodeLibraryStorage, encodeLibraryStorage, LIBRARY_SCHEMA_VERSION } from "../shared/libraryStorageCodec";
 import { createImageStore } from "../src/imageStore";
@@ -31,6 +39,89 @@ const base = normalizeLibrary({
   groups: [],
   railOrder: [{ kind: "capture", id: "a" }, { kind: "capture", id: "b" }, { kind: "capture", id: "c" }]
 });
+
+{
+  const expected = "Couldn't add the image here. Try copying it from the Dock and pasting it into the page.";
+  assert.equal(friendlyErrorMessage("WhatsApp did not accept the folder images through paste."), expected);
+  assert.equal(friendlyErrorMessage("Could not find an active message field or attachment input on this page."), expected);
+  assert.equal(friendlyErrorMessage("This page ignored the image insert."), expected);
+  assert.equal(friendlyErrorMessage("Select a larger area."), "Select a larger area.");
+  assert.equal(isInsertionFailure("This page ignored the image insert."), true);
+  assert.equal(isInsertionFailure("Select a larger area."), false);
+}
+
+{
+  const addTarget = { kind: "group" as const, id: "persistent-folder" };
+  assert.deepEqual(contentMessageForRuntimeState(undefined, addTarget), {
+    type: "JUSTSNAP_SHOW_RAIL",
+    addTarget
+  });
+}
+
+{
+  const surfaces = {
+    toolbar: { left: 300, top: 10, right: 700, bottom: 80 },
+    dock: { left: 900, top: 100, right: 1000, bottom: 700 }
+  };
+  const clear = snipAvoidanceForSelection(
+    { left: 100, top: 120, width: 150, height: 150 },
+    surfaces
+  );
+  assert.deepEqual(clear, { toolbar: false, dock: false });
+
+  const toolbarOverlap = snipAvoidanceForSelection(
+    { left: 250, top: 40, width: 150, height: 160 },
+    surfaces
+  );
+  assert.deepEqual(toolbarOverlap, { toolbar: true, dock: false });
+
+  const movedAway = snipAvoidanceForSelection(
+    { left: 100, top: 120, width: 150, height: 150 },
+    surfaces
+  );
+  assert.deepEqual(movedAway, { toolbar: false, dock: false });
+
+  const dockOverlap = snipAvoidanceForSelection(
+    { left: 850, top: 250, width: 100, height: 100 },
+    surfaces
+  );
+  assert.deepEqual(dockOverlap, { toolbar: false, dock: true });
+}
+
+{
+  const png = new Blob(["png"], { type: "image/png" });
+  const jpeg = new Blob(["jpeg"], { type: "image/jpeg" });
+  const converted = new Blob(["converted"], { type: "image/png" });
+  const conversionInputs: Blob[] = [];
+  const prepared = await prepareClipboardImages([png, jpeg], async (blob) => {
+    conversionInputs.push(blob);
+    return converted;
+  });
+  assert.deepEqual(conversionInputs, [jpeg]);
+  assert.deepEqual(prepared, [png, converted]);
+  assert.deepEqual(prepared.map((blob) => blob.type), ["image/png", "image/png"]);
+}
+
+{
+  const png = new Blob(["png"], { type: "image/png" });
+  const jpeg = new Blob(["jpeg"], { type: "image/jpeg" });
+  const gif = new Blob(["gif"], { type: "image/gif" });
+  const webp = new Blob(["webp"], { type: "image/webp" });
+  const avif = new Blob(["avif"], { type: "image/avif" });
+  const converted = new Blob(["converted"], { type: "image/png" });
+  const conversionInputs: Blob[] = [];
+  const convert = async (blob: Blob) => {
+    conversionInputs.push(blob);
+    return converted;
+  };
+
+  assert.equal(await prepareDeliveryImage(png, convert), png);
+  assert.equal(await prepareDeliveryImage(jpeg, convert), jpeg);
+  assert.equal(await prepareDeliveryImage(gif, convert), gif);
+  assert.equal(await prepareDeliveryImage(webp, convert), converted);
+  assert.equal(await prepareDeliveryImage(avif, convert), converted);
+  assert.deepEqual(conversionInputs, [webp, avif]);
+}
 
 {
   const calls: string[] = [];
@@ -64,9 +155,10 @@ const base = normalizeLibrary({
     justsnap_groups: [{ id: "folder", name: "Old", createdAt: 1, captureIds: [], collapsed: true }],
     justsnap_rail_order: [{ kind: "group", id: "folder" }]
   });
-  assert.equal(LIBRARY_SCHEMA_VERSION, 1);
+  assert.equal(LIBRARY_SCHEMA_VERSION, 2);
   assert.equal(decoded.needsWrite, true);
   assert.deepEqual(decoded.library.groups[0].captureIds, ["legacy"]);
+  assert.equal(decoded.library.groups[0].colorSlot, 0);
   assert.deepEqual(decoded.library.railOrder, [{ kind: "group", id: "folder" }]);
 }
 
@@ -122,6 +214,65 @@ const base = normalizeLibrary({
   assert.match(libraryRule, /overflow:\s*visible/);
   assert.doesNotMatch(libraryRule, /overflow-[xy]:/);
   assert.doesNotMatch(libraryRule, /max-height:/);
+}
+
+{
+  const toolbarRule = styles.match(/\.justsnap-capture-toolbar\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(toolbarRule, /min-width:\s*var\(--docksnip-toolbar-width\)/);
+  const toolbarCopyRule = styles.match(/\.justsnap-capture-toolbar-copy\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(toolbarCopyRule, /flex:\s*1 1 auto/);
+  assert.match(toolbarCopyRule, /max-width:\s*none/);
+}
+
+{
+  assert.match(styles, /--docksnip-notice-width:\s*min\(520px, calc\(100vw - 48px\)\)/);
+}
+
+{
+  const retiredBlueAccents = [
+    "#55b8ff",
+    "#0ea5e9",
+    "#45a6ff",
+    "rgba(14, 165, 233",
+    "rgba(69, 166, 255",
+    "rgba(125, 211, 252",
+  ];
+  for (const accent of retiredBlueAccents) assert.doesNotMatch(styles.toLowerCase(), new RegExp(accent.replace(/[()]/g, "\\$&")));
+}
+
+{
+  const deleteConfirmRule = styles.match(/\.justsnap-dock-delete-confirm\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(deleteConfirmRule, /width:\s*min\(560px, calc\(100vw - 32px\)\)/);
+  assert.match(deleteConfirmRule, /border-radius:\s*999px/);
+}
+
+{
+  assert.match(
+    styles,
+    /\.justsnap-capture-toolbar\.justsnap-capture-frame-clean-surface[^{}]*\{[^}]*visibility:\s*hidden/
+  );
+  assert.doesNotMatch(
+    styles,
+    /\.justsnap-capture-layer\.justsnap-capture-frame-clean\s+\.justsnap-capture-toolbar[^{}]*\{[^}]*visibility:\s*hidden/
+  );
+  assert.match(
+    styles,
+    /\.justsnap-rail\.justsnap-capture-frame-clean-surface[^{}]*\{[^}]*visibility:\s*hidden/
+  );
+}
+
+{
+  const mutedAddTargetRule = styles.match(/\.justsnap-dock-slot-add-muted\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(mutedAddTargetRule, /opacity:\s*0\.28/);
+  assert.match(mutedAddTargetRule, /grayscale/);
+  assert.match(styles, /\.justsnap-dock-slot-add-muted[^{}]*\.justsnap-dock-image-button/);
+  assert.match(styles, /\.justsnap-dock-slot-add-muted[^{}]*\.justsnap-group-flyout/);
+}
+
+{
+  assert.match(styles, /\.justsnap-drop-create-folder\s*>\s*\.justsnap-dock-image-button/);
+  assert.match(styles, /\.justsnap-drop-add-folder\s*>\s*\.justsnap-dock-folder-button/);
+  assert.doesNotMatch(styles, /\.justsnap-drop-add-folder\s+\.justsnap-dock-image-button::after/);
 }
 
 {
@@ -199,11 +350,69 @@ const base = normalizeLibrary({
 }
 
 {
+  assert.equal(shouldSuppressNativePageDrop({
+    hasPendingPayload: true,
+    isTrusted: true,
+    isDockSnipTarget: false
+  }), true);
+  assert.equal(shouldSuppressNativePageDrop({
+    hasPendingPayload: true,
+    isTrusted: true,
+    isDockSnipTarget: true
+  }), false);
+  assert.equal(shouldSuppressNativePageDrop({
+    hasPendingPayload: false,
+    isTrusted: true,
+    isDockSnipTarget: false
+  }), false);
+  assert.equal(shouldSuppressNativePageDrop({
+    hasPendingPayload: true,
+    isTrusted: false,
+    isDockSnipTarget: false
+  }), false);
+}
+
+{
   assert.equal(dockFolderSize(52, 0), 52);
   assert.ok(Math.abs(dockFolderSize(52, 1) - 85.8) < 0.001);
   assert.ok(Math.abs(dockFolderSize(28, 1) - 46.2) < 0.001);
   assert.equal(dockFolderSize(60, 1), 88);
   assert.ok(Math.abs(dockFolderSize(52, 0.5) - 68.9) < 0.001);
+
+  assert.deepEqual(folderToneForId("stable-folder"), folderToneForId("stable-folder"));
+  assert.notDeepEqual(folderToneForId("folder-a"), folderToneForId("folder-b"));
+  assert.equal(new Set(FOLDER_TONE_NAMES).size, FOLDER_COLOR_SLOT_COUNT);
+  assert.equal(
+    new Set(Array.from({ length: FOLDER_COLOR_SLOT_COUNT }, (_, index) => folderToneForSlot(index).surface)).size,
+    FOLDER_COLOR_SLOT_COUNT
+  );
+}
+
+{
+  let library = normalizeLibrary({ captures: [], groups: [], railOrder: [] });
+  const assignedSlots: number[] = [];
+  for (let index = 0; index <= FOLDER_COLOR_SLOT_COUNT; index += 1) {
+    const groupId = `color-folder-${index}`;
+    library = applyLibraryMutation(library, {
+      type: "create_empty_group",
+      groupId,
+      name: "New folder",
+      createdAt: index
+    });
+    assignedSlots.push(library.groups.find((group) => group.id === groupId)?.colorSlot ?? -1);
+  }
+  assert.equal(new Set(assignedSlots.slice(0, FOLDER_COLOR_SLOT_COUNT)).size, FOLDER_COLOR_SLOT_COUNT);
+  assert.equal(assignedSlots[FOLDER_COLOR_SLOT_COUNT], assignedSlots[0]);
+
+  const freedSlot = assignedSlots[5];
+  library = applyLibraryMutation(library, { type: "delete_group", groupId: "color-folder-5" });
+  library = applyLibraryMutation(library, {
+    type: "create_empty_group",
+    groupId: "replacement-folder",
+    name: "New folder",
+    createdAt: 20
+  });
+  assert.equal(library.groups.find((group) => group.id === "replacement-folder")?.colorSlot, freedSlot);
 }
 
 {
@@ -393,6 +602,52 @@ const base = normalizeLibrary({
     { kind: "group", id: "delete-me" },
     { kind: "capture", id: "c" }
   ]);
+}
+
+{
+  const deleted = applyLibraryMutation(base, { type: "delete_capture", captureId: "b" });
+  const restored = restoreDeletedCapture(deleted, capture("b"), { railIndex: 1 });
+  assert.deepEqual(restored.captures.map((entry) => entry.id).sort(), ["a", "b", "c"]);
+  assert.deepEqual(restored.railOrder, [
+    { kind: "capture", id: "a" },
+    { kind: "capture", id: "b" },
+    { kind: "capture", id: "c" }
+  ]);
+}
+
+{
+  const grouped = applyLibraryMutation(base, {
+    type: "create_group",
+    groupId: "restore-capture-group",
+    name: "Restore capture",
+    createdAt: 2,
+    sourceCaptureId: "b",
+    targetCaptureId: "a"
+  });
+  const deleted = applyLibraryMutation(grouped, { type: "delete_capture", captureId: "a" });
+  const restored = restoreDeletedCapture(deleted, capture("a"), {
+    railIndex: 0,
+    groupId: "restore-capture-group",
+    groupIndex: 0
+  });
+  assert.deepEqual(restored.groups[0].captureIds, ["a", "b"]);
+  assert.deepEqual(restored.railOrder, [
+    { kind: "group", id: "restore-capture-group" },
+    { kind: "capture", id: "c" }
+  ]);
+}
+
+{
+  const cleared = applyLibraryMutation(base, { type: "clear_library" });
+  const withNewCapture = addCapture(cleared, capture("new"));
+  const restored = restoreClearedLibrary(withNewCapture, base);
+  assert.deepEqual(restored.railOrder, [
+    { kind: "capture", id: "new" },
+    { kind: "capture", id: "a" },
+    { kind: "capture", id: "b" },
+    { kind: "capture", id: "c" }
+  ]);
+  assert.deepEqual(restored.captures.map((entry) => entry.id).sort(), ["a", "b", "c", "new"]);
 }
 
 {

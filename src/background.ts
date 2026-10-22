@@ -1,5 +1,5 @@
 import { captureImageToBlob, deleteImageBlob, getImageBlob } from "../shared/blobStore";
-import { parseStoredCaptureSession } from "../shared/sessionModel";
+import { contentMessageForRuntimeState, parseStoredAddTarget, parseStoredCaptureSession } from "../shared/sessionModel";
 import type { ActiveCaptureSession } from "../shared/sessionModel";
 import type {
   BackgroundRequest,
@@ -9,7 +9,7 @@ import type {
   CaptureImage,
   CaptureSelectionResult,
   ContentMessage,
-  GroupDeletionResult,
+  DeletionResult,
   LibraryMutation,
   RailOrderItem
 } from "../shared/types";
@@ -17,8 +17,10 @@ import {
   mutateLibrary,
   readLibrary,
   recoverUnownedCaptures,
+  stageCaptureDeletion,
+  stageClearLibrary,
   stageGroupDeletion,
-  undoGroupDeletion,
+  undoDeletion,
   updateLibrary
 } from "./libraryRepository";
 import { imageStore } from "./imageStore";
@@ -27,6 +29,7 @@ import { fetchImageForImport, MAX_IMPORT_BYTES } from "./imageImporter";
 let railFollowEnabled = false;
 let activeRailTabId: number | undefined;
 let captureSession: ActiveCaptureSession | undefined;
+let activeAddTarget: CaptureAddTarget | undefined;
 let runtimeStateLoaded = false;
 let runtimeStateLoadPromise: Promise<void> | undefined;
 let runtimeStateWriteQueue: Promise<void> = Promise.resolve();
@@ -157,6 +160,12 @@ async function handleMessage(request: BackgroundRequest, sender: chrome.runtime.
       return { ok: true, data: session };
     }
 
+    if (request.type === "JUSTSNAP_SET_ADD_TARGET") {
+      activeAddTarget = request.addTarget;
+      await persistRuntimeState();
+      return { ok: true, data: null };
+    }
+
     if (request.type === "JUSTSNAP_IMPORT_IMAGE_URL") {
       const capture = await importImageUrl(request);
       return { ok: true, data: capture };
@@ -187,12 +196,20 @@ async function handleMessage(request: BackgroundRequest, sender: chrome.runtime.
       return { ok: true, data: blob ? await blobToDataUrl(blob) : null };
     }
 
-    if (request.type === "JUSTSNAP_DELETE_GROUP") {
-      return { ok: true, data: await stageGroupDeletion(request.groupId) satisfies GroupDeletionResult };
+    if (request.type === "JUSTSNAP_DELETE_CAPTURE") {
+      return { ok: true, data: await stageCaptureDeletion(request.captureId) satisfies DeletionResult };
     }
 
-    if (request.type === "JUSTSNAP_UNDO_GROUP_DELETE") {
-      return { ok: true, data: await undoGroupDeletion(request.deletionId) };
+    if (request.type === "JUSTSNAP_DELETE_GROUP") {
+      return { ok: true, data: await stageGroupDeletion(request.groupId) satisfies DeletionResult };
+    }
+
+    if (request.type === "JUSTSNAP_CLEAR_LIBRARY") {
+      return { ok: true, data: await stageClearLibrary() satisfies DeletionResult };
+    }
+
+    if (request.type === "JUSTSNAP_UNDO_DELETE") {
+      return { ok: true, data: await undoDeletion(request.deletionId) };
     }
 
     if (request.type === "JUSTSNAP_MUTATE_LIBRARY") {
@@ -246,6 +263,7 @@ async function prepareCaptureSession(tab: chrome.tabs.Tab | undefined, addTarget
     tabId: tab.id,
     addTarget
   };
+  activeAddTarget = addTarget;
   railFollowEnabled = true;
   railLifecycleRevision += 1;
   await persistRuntimeState();
@@ -286,6 +304,7 @@ async function closeRailEverywhere(): Promise<void> {
     await finishCaptureSession(captureSession.id);
   }
   activeRailTabId = undefined;
+  activeAddTarget = undefined;
   await persistRuntimeState();
   const tabs = await chrome.tabs.query({});
   await Promise.all(tabs.map((tab) => (tab.id ? sendMessageIfPresent(tab.id, { type: "JUSTSNAP_CLOSE_RAIL" }) : undefined)));
@@ -525,7 +544,7 @@ async function createGroupFromCaptures(
 }
 
 function messageForTab(): ContentMessage {
-  return captureSession ? captureStartMessage(captureSession) : { type: "JUSTSNAP_SHOW_RAIL" };
+  return contentMessageForRuntimeState(captureSession, activeAddTarget);
 }
 
 function captureStartMessage(session: NonNullable<typeof captureSession>): ContentMessage {
@@ -602,12 +621,19 @@ function validateBackgroundRequest(value: unknown, sender: chrome.runtime.Messag
       const groupId = parseId(value.groupId);
       return groupId ? { type: value.type, groupId } : undefined;
     }
-    case "JUSTSNAP_UNDO_GROUP_DELETE": {
+    case "JUSTSNAP_UNDO_DELETE": {
       const deletionId = parseId(value.deletionId);
       return deletionId ? { type: value.type, deletionId } : undefined;
     }
+    case "JUSTSNAP_DELETE_CAPTURE": {
+      const captureId = parseId(value.captureId);
+      return captureId ? { type: value.type, captureId } : undefined;
+    }
+    case "JUSTSNAP_CLEAR_LIBRARY":
+      return { type: value.type };
     case "JUSTSNAP_START_CAPTURE_ACTIVE":
-    case "JUSTSNAP_PREPARE_CAPTURE_SESSION": {
+    case "JUSTSNAP_PREPARE_CAPTURE_SESSION":
+    case "JUSTSNAP_SET_ADD_TARGET": {
       const addTarget = value.addTarget === undefined ? undefined : parseAddTarget(value.addTarget);
       if (value.addTarget !== undefined && !addTarget) return undefined;
       return { type: value.type, ...(addTarget ? { addTarget } : {}) };
@@ -741,6 +767,7 @@ async function ensureRuntimeState(): Promise<void> {
         railFollowEnabled = stored.railFollowEnabled === true;
         activeRailTabId = typeof stored.activeRailTabId === "number" ? stored.activeRailTabId : undefined;
         captureSession = parseStoredCaptureSession(stored.captureSession);
+        activeAddTarget = parseStoredAddTarget(stored.activeAddTarget);
       }
       await recoverUnownedCaptures(captureSession?.captureIds ?? []);
       runtimeStateLoaded = true;
@@ -750,7 +777,7 @@ async function ensureRuntimeState(): Promise<void> {
 }
 
 async function persistRuntimeState(): Promise<void> {
-  const snapshot = { railFollowEnabled, activeRailTabId, captureSession };
+  const snapshot = { railFollowEnabled, activeRailTabId, captureSession, activeAddTarget };
   const write = () => chrome.storage.session.set({ [RUNTIME_STATE_KEY]: snapshot });
   runtimeStateWriteQueue = runtimeStateWriteQueue.then(write, write);
   await runtimeStateWriteQueue;

@@ -55,5 +55,14 @@
       "run_at": "document_idle"
     }
   ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "fonts/HostGrotesk-Variable.woff2",
+        "logos/docksnip-logomark.svg"
+      ],
+      "matches": ["http://*/*", "https://*/*"]
+    }
+  ],
   "options_page": "options.html"
 }

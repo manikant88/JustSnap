@@ -1,7 +1,8 @@
 import { normalizeLibrary } from "./libraryModel";
 import type { Capture, CaptureDock, CaptureGroup, LibraryState, RailOrderItem } from "./types";
+import { isFolderColorSlot } from "./folderColor";
 
-export const LIBRARY_SCHEMA_VERSION = 1;
+export const LIBRARY_SCHEMA_VERSION = 2;
 export const LIBRARY_STORAGE_KEYS = {
   captures: "justsnap_captures",
   groups: "justsnap_groups",
@@ -80,7 +81,7 @@ function hasLegacyCaptureFields(capture: unknown): boolean {
 }
 
 function hasLegacyGroupFields(group: unknown): boolean {
-  return isRecord(group) && "collapsed" in group;
+  return isRecord(group) && ("collapsed" in group || !isFolderColorSlot(group.colorSlot));
 }
 
 function parseCapture(value: unknown): Capture | undefined {
@@ -102,7 +103,13 @@ function parseGroup(value: unknown): CaptureGroup | undefined {
   if (!isRecord(value) || !isId(value.id) || typeof value.name !== "string" ||
     value.name.length > 120 || !isFiniteNumber(value.createdAt) ||
     !Array.isArray(value.captureIds) || !value.captureIds.every(isId)) return undefined;
-  return { id: value.id, name: value.name, createdAt: value.createdAt, captureIds: [...value.captureIds] };
+  return {
+    id: value.id,
+    name: value.name,
+    createdAt: value.createdAt,
+    colorSlot: isFolderColorSlot(value.colorSlot) ? value.colorSlot : -1,
+    captureIds: [...value.captureIds]
+  };
 }
 
 function parseOrderItem(value: unknown): RailOrderItem | undefined {

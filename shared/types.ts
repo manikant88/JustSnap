@@ -12,6 +12,7 @@ export type CaptureGroup = {
   id: string;
   name: string;
   createdAt: number;
+  colorSlot: number;
   captureIds: string[];
 };
 
@@ -84,10 +85,13 @@ export type CaptureSelectionResult = {
   session: CaptureSessionSnapshot | null;
 };
 
-export type GroupDeletionResult = {
+export type DeletionKind = "capture" | "group" | "dock";
+
+export type DeletionResult = {
   library: LibraryState;
   deletionId?: string;
   expiresAt?: number;
+  kind?: DeletionKind;
 };
 
 export type BackgroundRequest =
@@ -97,6 +101,7 @@ export type BackgroundRequest =
   | { type: "JUSTSNAP_OPEN_SHORTCUT_SETTINGS" }
   | { type: "JUSTSNAP_START_CAPTURE_ACTIVE"; addTarget?: CaptureAddTarget }
   | { type: "JUSTSNAP_PREPARE_CAPTURE_SESSION"; addTarget?: CaptureAddTarget }
+  | { type: "JUSTSNAP_SET_ADD_TARGET"; addTarget?: CaptureAddTarget }
   | {
       type: "JUSTSNAP_IMPORT_IMAGE_URL";
       imageUrl: string;
@@ -111,8 +116,10 @@ export type BackgroundRequest =
   | { type: "JUSTSNAP_CANCEL_CAPTURE_SESSION"; sessionId: string }
   | { type: "JUSTSNAP_GET_LIBRARY" }
   | { type: "JUSTSNAP_GET_IMAGE_DATA"; imageBlobKey: string }
+  | { type: "JUSTSNAP_DELETE_CAPTURE"; captureId: string }
   | { type: "JUSTSNAP_DELETE_GROUP"; groupId: string }
-  | { type: "JUSTSNAP_UNDO_GROUP_DELETE"; deletionId: string }
+  | { type: "JUSTSNAP_CLEAR_LIBRARY" }
+  | { type: "JUSTSNAP_UNDO_DELETE"; deletionId: string }
   | { type: "JUSTSNAP_MUTATE_LIBRARY"; mutation: LibraryMutation };
 
 export type BackgroundResponse<T = unknown> =
@@ -120,7 +127,7 @@ export type BackgroundResponse<T = unknown> =
   | { ok: false; error: string };
 
 export type ContentMessage =
-  | { type: "JUSTSNAP_SHOW_RAIL" }
+  | { type: "JUSTSNAP_SHOW_RAIL"; addTarget?: CaptureAddTarget }
   | ({ type: "JUSTSNAP_START_CAPTURE" } & CaptureSessionSnapshot)
   | { type: "JUSTSNAP_CLOSE_RAIL" }
   | { type: "JUSTSNAP_CAPTURE_ERROR"; error: string };

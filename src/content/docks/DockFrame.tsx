@@ -1,6 +1,6 @@
 import React, { forwardRef, useLayoutEffect, useRef, useState } from "react";
 import type { RailOrderItem } from "../../../shared/types";
-import { dockBaseIslandPath } from "../dockLayout";
+import { dockBaseIslandEdgePath, dockBaseIslandPath } from "../dockLayout";
 import { insertionIndexForPointer, railInsertIntentForIndex, type RailItemBand } from "../rail/dndIntent";
 import type { RailDropIntent } from "../types";
 
@@ -43,6 +43,7 @@ export const DockFrame = forwardRef<HTMLElement, DockFrameProps>(
     };
     const joinRadius = 20;
     const silhouetteHeight = size.height + joinRadius * 2;
+    const joinFadeOffset = size.width > 0 ? Math.max(0, (size.width - joinRadius) / size.width) : 0;
 
     const railItemBands = (): RailItemBand[] => {
       const element = localRef.current;
@@ -124,7 +125,32 @@ export const DockFrame = forwardRef<HTMLElement, DockFrameProps>(
             preserveAspectRatio="none"
             aria-hidden="true"
           >
-            <path d={dockBaseIslandPath({ width: size.width, height: silhouetteHeight, joinRadius })} />
+            <defs>
+              <linearGradient
+                id="docksnip-rail-edge-fade"
+                gradientUnits="objectBoundingBox"
+                x1="0"
+                y1="0"
+                x2="1"
+                y2="0"
+              >
+                <stop className="justsnap-rail-silhouette-edge-stop" offset="0" stopOpacity="1" />
+                <stop
+                  className="justsnap-rail-silhouette-edge-stop"
+                  offset={joinFadeOffset}
+                  stopOpacity="1"
+                />
+                <stop className="justsnap-rail-silhouette-edge-stop" offset="1" stopOpacity="0.24" />
+              </linearGradient>
+            </defs>
+            <path
+              className="justsnap-rail-silhouette-fill"
+              d={dockBaseIslandPath({ width: size.width, height: silhouetteHeight, joinRadius })}
+            />
+            <path
+              className="justsnap-rail-silhouette-edge"
+              d={dockBaseIslandEdgePath({ width: size.width, height: silhouetteHeight, joinRadius })}
+            />
           </svg>
         ) : null}
         <div className="justsnap-rail-control-slot">{top}</div>

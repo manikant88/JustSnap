@@ -7,6 +7,7 @@ import type {
   LibraryState,
   RailOrderItem
 } from "./types";
+import { nextFolderColorSlot, normalizeFolderColorSlots } from "./folderColor";
 
 type LibraryInput = Pick<LibraryState, "captures" | "groups"> &
   Partial<Pick<LibraryState, "docks" | "activeDockId" | "railOrder">>;
@@ -15,7 +16,7 @@ export function normalizeLibrary(input: LibraryInput): LibraryState {
   const captures = uniqueById(input.captures);
   const captureIds = new Set(captures.map((capture) => capture.id));
   const claimedCaptureIds = new Set<string>();
-  const groups = uniqueById(input.groups).map((group) => {
+  const groups = normalizeFolderColorSlots(uniqueById(input.groups)).map((group) => {
     const available = group.captureIds.filter(
       (id, index, ids) => captureIds.has(id) && ids.indexOf(id) === index && !claimedCaptureIds.has(id)
     );
@@ -72,6 +73,7 @@ export function applyLibraryMutation(library: LibraryState, mutation: LibraryMut
         id: mutation.groupId,
         name: cleanName(mutation.name, "New folder"),
         createdAt: mutation.createdAt,
+        colorSlot: nextFolderColorSlot(current.groups),
         captureIds: [mutation.targetCaptureId, mutation.sourceCaptureId]
       };
       const docks = replaceCapturesWithGroupAcrossDocks(
@@ -157,6 +159,7 @@ export function applyLibraryMutation(library: LibraryState, mutation: LibraryMut
         id: mutation.groupId,
         name: cleanName(mutation.name, "New folder"),
         createdAt: mutation.createdAt,
+        colorSlot: nextFolderColorSlot(current.groups),
         captureIds: []
       };
       return addTopLevelEntity(
@@ -224,6 +227,68 @@ export function restoreDeletedGroup(
     groups: [group, ...current.groups],
     docks,
     railOrder: order
+  });
+}
+
+export type DeletedCapturePlacement = {
+  railIndex: number;
+  groupId?: string;
+  groupIndex?: number;
+};
+
+export function restoreDeletedCapture(
+  library: LibraryState,
+  capture: Capture,
+  placement: DeletedCapturePlacement
+): LibraryState {
+  const current = normalizeLibrary(library);
+  if (current.captures.some((entry) => entry.id === capture.id)) return current;
+
+  const targetGroup = placement.groupId
+    ? current.groups.find((group) => group.id === placement.groupId)
+    : undefined;
+  if (targetGroup) {
+    const captureIds = targetGroup.captureIds.filter((id) => id !== capture.id);
+    captureIds.splice(
+      Math.max(0, Math.min(placement.groupIndex ?? captureIds.length, captureIds.length)),
+      0,
+      capture.id
+    );
+    return normalizeLibrary({
+      ...current,
+      captures: [capture, ...current.captures],
+      groups: current.groups.map((group) => group.id === targetGroup.id ? { ...group, captureIds } : group)
+    });
+  }
+
+  const order = current.railOrder.filter((item) => item.kind !== "capture" || item.id !== capture.id);
+  order.splice(Math.max(0, Math.min(placement.railIndex, order.length)), 0, { kind: "capture", id: capture.id });
+  return normalizeLibrary({
+    ...withActiveOrder(current, order),
+    captures: [capture, ...current.captures]
+  });
+}
+
+export function restoreClearedLibrary(library: LibraryState, deleted: LibraryState): LibraryState {
+  const current = normalizeLibrary(library);
+  const snapshot = normalizeLibrary(deleted);
+  const currentCaptureIds = new Set(current.captures.map((capture) => capture.id));
+  const currentGroupIds = new Set(current.groups.map((group) => group.id));
+  const currentItemKeys = new Set(current.railOrder.map(itemKey));
+  const order = [
+    ...current.railOrder,
+    ...snapshot.railOrder.filter((item) => !currentItemKeys.has(itemKey(item)))
+  ];
+  return normalizeLibrary({
+    ...withActiveOrder(current, order),
+    captures: [
+      ...current.captures,
+      ...snapshot.captures.filter((capture) => !currentCaptureIds.has(capture.id))
+    ],
+    groups: [
+      ...current.groups,
+      ...snapshot.groups.filter((group) => !currentGroupIds.has(group.id))
+    ]
   });
 }
 

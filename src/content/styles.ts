@@ -1,22 +1,31 @@
 export const styles = `
   :host, * { box-sizing: border-box; }
   :host {
+    --docksnip-font-family: "Host Grotesk";
+    --docksnip-font-weight: 400;
+    --docksnip-button-font-weight: 600;
+    --docksnip-toolbar-bottom-offset: 60px;
     --docksnip-toolbar-width: min(620px, calc(100vw - 28px));
-    --docksnip-notice-width: min(420px, calc(100vw - 48px));
-    --docksnip-panel-background: #111214;
-    --docksnip-panel-border: #34373d;
+    --docksnip-notice-width: min(520px, calc(100vw - 48px));
+    --docksnip-panel-background: #050506;
+    --docksnip-toolbar-background: #050506;
+    --docksnip-panel-border: rgba(203, 213, 225, 0.14);
     --docksnip-panel-shadow: 0 16px 38px rgba(0, 0, 0, 0.34);
     --docksnip-control-background: #25282e;
     --docksnip-control-hover: #30343b;
     --docksnip-control-border: #41454d;
+    --docksnip-active-accent: #fff;
     --docksnip-success-background: #168642;
     --docksnip-success-hover: #1a9950;
     --docksnip-success-active: #127038;
     --docksnip-success-border: rgba(74, 222, 128, 0.52);
     --docksnip-success-ring: rgba(34, 197, 94, 0.2);
+    --docksnip-dock-edge: rgba(203, 213, 225, 0.08);
+    --docksnip-dock-edge-glow: rgba(203, 213, 225, 0.057);
   }
   :host, :host * {
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+    font-family: var(--docksnip-font-family) !important;
+    font-weight: var(--docksnip-font-weight) !important;
   }
   button, input { font: inherit; }
   .justsnap-rail {
@@ -36,7 +45,6 @@ export const styles = `
     border: 0;
     border-radius: 28px 0 0 28px;
     box-shadow: none;
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     overflow: visible;
     translate: 0 -50%;
     pointer-events: auto;
@@ -53,9 +61,21 @@ export const styles = `
     overflow: visible;
     pointer-events: none;
   }
-  .justsnap-rail-silhouette path {
+  .justsnap-rail-silhouette-fill {
     fill: #050506;
-    filter: drop-shadow(-12px 0 18px rgba(0, 0, 0, 0.24));
+  }
+  .justsnap-rail-silhouette-edge {
+    fill: none;
+    stroke: url(#docksnip-rail-edge-fade);
+    stroke-width: 1px;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+    filter:
+      drop-shadow(-12px 0 18px rgba(0, 0, 0, 0.24))
+      drop-shadow(-1px 0 0 var(--docksnip-dock-edge-glow));
+  }
+  .justsnap-rail-silhouette-edge-stop {
+    stop-color: var(--docksnip-dock-edge);
   }
   .justsnap-rail > :not(.justsnap-rail-silhouette) {
     position: relative;
@@ -65,24 +85,25 @@ export const styles = `
     max-height: none;
   }
   .justsnap-rail-control-slot {
+    --justsnap-rail-control-size: max(24px, calc(var(--justsnap-dock-base, 52px) - 4px));
     position: relative;
     z-index: 10;
     width: 100%;
-    height: calc(var(--justsnap-dock-base, 52px) + max(4px, var(--justsnap-dock-gap, 12px)));
+    height: var(--justsnap-rail-surface, 74px);
     flex: 0 0 auto;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0 7px;
+    padding: 0;
     pointer-events: none;
   }
   .justsnap-rail-control {
     position: relative;
-    width: var(--justsnap-dock-base, 52px);
+    width: var(--justsnap-rail-control-size);
     min-width: 0;
-    height: var(--justsnap-dock-base, 52px);
+    height: var(--justsnap-rail-control-size);
     border: 0;
-    border-radius: 10px;
+    border-radius: clamp(6px, calc(var(--justsnap-rail-control-size) * 0.3125), 15px);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -113,7 +134,6 @@ export const styles = `
     background: rgba(17, 17, 17, 0.96);
     box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
     font-size: 13px;
-    font-weight: 600;
     line-height: 1.12;
     letter-spacing: 0;
     white-space: nowrap;
@@ -148,12 +168,27 @@ export const styles = `
     translate: -4px -50%;
   }
   .justsnap-rail-control:disabled { opacity: 0.45; cursor: not-allowed; }
-  .justsnap-toolbar-notice {
+  .justsnap-notification-stack {
     position: fixed;
-    top: 78px;
-    left: 50%;
-    translate: -50% 0;
+    bottom: calc(var(--docksnip-toolbar-bottom-offset) + 72px + env(safe-area-inset-bottom, 0px));
+    right: 0;
+    left: 0;
     z-index: 2147483647;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    pointer-events: none;
+  }
+  .justsnap-notification-stack-item {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    pointer-events: none;
+  }
+  .justsnap-notification-stack-item > * { pointer-events: auto; }
+  .justsnap-toolbar-notice {
+    position: relative;
     width: var(--docksnip-notice-width);
     min-height: 46px;
     padding: 5px 6px 5px 8px;
@@ -175,7 +210,7 @@ export const styles = `
     animation: docksnip-notice-enter 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
   .justsnap-toolbar-notice-error { --docksnip-notice-accent: #ff6961; }
-  .justsnap-toolbar-notice-info { --docksnip-notice-accent: #55b8ff; }
+  .justsnap-toolbar-notice-info { --docksnip-notice-accent: var(--docksnip-active-accent); }
   .justsnap-toolbar-notice-icon {
     flex: 0 0 auto;
     width: 28px;
@@ -192,9 +227,15 @@ export const styles = `
     flex: 1 1 auto;
     margin: 0;
     font-size: 13px;
-    font-weight: 650;
     line-height: 1.35;
     letter-spacing: 0;
+  }
+  .justsnap-inline-copy-icon {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    margin: 0 4px;
+    vertical-align: -2px;
   }
   .justsnap-toolbar-notice-action {
     min-width: 44px;
@@ -209,7 +250,6 @@ export const styles = `
     color: #fff;
     background: color-mix(in srgb, var(--docksnip-notice-accent) 10%, var(--docksnip-control-background));
     font-size: 12px;
-    font-weight: 700;
     line-height: 1;
     cursor: pointer;
     transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, scale 140ms ease;
@@ -236,7 +276,7 @@ export const styles = `
     background: #18202b;
     box-shadow:
       0 12px 28px rgba(3, 7, 18, 0.26),
-      0 0 0 3px rgba(14, 165, 233, 0.12);
+      0 0 0 3px color-mix(in srgb, var(--docksnip-active-accent) 12%, transparent);
     cursor: pointer;
     translate: -50% -50%;
     transition: background 120ms ease, color 120ms ease, scale 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
@@ -259,7 +299,6 @@ export const styles = `
     background: rgba(17, 17, 17, 0.96);
     box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
     font-size: 13px;
-    font-weight: 650;
     line-height: 1.12;
     white-space: nowrap;
   }
@@ -275,11 +314,13 @@ export const styles = `
   }
   .justsnap-page-image-add:hover,
   .justsnap-page-image-add:focus-visible {
-    color: #fff;
-    background: #087eb8;
+    color: var(--docksnip-panel-background);
+    border-color: rgba(5, 5, 6, 0.16);
+    background: var(--docksnip-active-accent);
     box-shadow:
       0 14px 32px rgba(3, 7, 18, 0.3),
-      0 0 0 4px rgba(14, 165, 233, 0.2);
+      0 0 0 4px rgba(5, 5, 6, 0.14),
+      0 0 22px 8px rgba(5, 5, 6, 0.1);
     outline: none;
     scale: 1.06;
   }
@@ -309,7 +350,7 @@ export const styles = `
     position: relative;
     z-index: 10;
     width: 100%;
-    height: max(12px, calc(var(--justsnap-dock-base, 52px) * 0.42));
+    height: max(10px, calc(var(--justsnap-dock-base, 52px) * 0.3));
     flex: 0 0 auto;
     display: flex;
     align-items: center;
@@ -358,22 +399,52 @@ export const styles = `
   }
   .justsnap-dynamic-island-contour {
     fill: #050506;
+    will-change: d;
+  }
+  .justsnap-dynamic-island-edge {
+    fill: none;
+    stroke: var(--docksnip-dock-edge);
+    stroke-width: 1px;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
     filter:
       drop-shadow(-12px 0 26px rgba(0, 0, 0, 0.2))
-      drop-shadow(1px 0 rgba(255, 255, 255, 0.08));
+      drop-shadow(-1px 0 0 var(--docksnip-dock-edge-glow));
     will-change: d;
   }
   .justsnap-dock-slot {
+    --justsnap-action-size: clamp(10px, calc(var(--justsnap-dock-base, 52px) * 0.42), 22px);
+    --justsnap-action-inset: clamp(2px, calc(var(--justsnap-dock-base, 52px) * 0.115), 6px);
+    --justsnap-action-icon-size: clamp(7px, calc(var(--justsnap-action-size) * 0.58), 13px);
     position: relative;
     width: 52px;
     height: 64px;
     flex: 0 0 auto;
     transition:
       width 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
-      height 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+      height 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity 160ms ease,
+      filter 160ms ease;
     overflow: visible;
     will-change: width, height;
     pointer-events: none;
+  }
+  .justsnap-dock-slot-add-muted {
+    opacity: 0.28;
+    filter: grayscale(0.72) saturate(0.42);
+    z-index: 0 !important;
+  }
+  .justsnap-dock-slot-add-muted > .justsnap-dock-image-button,
+  .justsnap-dock-slot-add-muted > .justsnap-dock-folder-button,
+  .justsnap-dock-slot-add-muted > .justsnap-dock-add,
+  .justsnap-dock-slot-add-muted > .justsnap-dock-copy,
+  .justsnap-dock-slot-add-muted > .justsnap-dock-remove,
+  .justsnap-dock-slot-add-muted > .justsnap-group-flyout {
+    pointer-events: none !important;
+  }
+  .justsnap-dock-slot-add-muted > .justsnap-group-flyout {
+    opacity: 0 !important;
+    visibility: hidden;
   }
   .justsnap-dock-slot::before,
   .justsnap-dock-slot::after {
@@ -384,8 +455,10 @@ export const styles = `
     width: max(34px, var(--justsnap-rail-surface, 74px));
     height: 3px;
     border-radius: 999px;
-    background: #0ea5e9;
-    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.16), 0 8px 16px rgba(14, 165, 233, 0.24);
+    background: var(--docksnip-active-accent);
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--docksnip-active-accent) 16%, transparent),
+      0 8px 16px color-mix(in srgb, var(--docksnip-active-accent) 24%, transparent);
     opacity: 0;
     pointer-events: none;
     transition: opacity 100ms ease-out;
@@ -426,8 +499,11 @@ export const styles = `
     animation: justsnap-capture-added 520ms cubic-bezier(0.18, 0.9, 0.22, 1.18);
   }
   .justsnap-dock-image-added-focus {
-    border: 2px solid #0ea5e9;
-    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.22), 0 10px 24px rgba(15, 32, 48, 0.24);
+    border: 0;
+    box-shadow:
+      0 0 0 2px var(--docksnip-active-accent),
+      0 0 0 5px color-mix(in srgb, var(--docksnip-active-accent) 22%, transparent),
+      0 10px 24px rgba(15, 32, 48, 0.24);
     z-index: 3;
   }
   @keyframes justsnap-capture-added {
@@ -439,21 +515,26 @@ export const styles = `
     .justsnap-dock-image-new { animation: none; }
   }
   .justsnap-dock-image-button:hover,
-  .justsnap-dock-image-button:focus-visible {
-    border: 1px solid rgba(125, 211, 252, 0.92);
-    box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.16), 0 14px 30px rgba(3, 7, 18, 0.26);
+  .justsnap-dock-image-button:focus-visible,
+  .justsnap-dock-slot:hover > .justsnap-dock-image-button,
+  .justsnap-dock-slot:focus-within > .justsnap-dock-image-button,
+  .justsnap-dock-slot-hovered > .justsnap-dock-image-button {
+    border: 0;
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--docksnip-active-accent) 92%, transparent),
+      0 14px 30px rgba(3, 7, 18, 0.26);
     filter: saturate(1.04) brightness(1.02);
     z-index: 2;
   }
-  .justsnap-drop-create-folder .justsnap-dock-image-button,
-  .justsnap-drop-add-folder .justsnap-dock-folder-button,
-  .justsnap-drop-add-folder .justsnap-dock-image-button {
+  .justsnap-drop-create-folder > .justsnap-dock-image-button,
+  .justsnap-drop-add-folder > .justsnap-dock-folder-button,
+  .justsnap-drop-add-folder > .justsnap-dock-image-button {
     border: 2px solid #22c55e !important;
     box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.18), 0 12px 28px rgba(15, 32, 48, 0.24) !important;
   }
-  .justsnap-drop-create-folder .justsnap-dock-image-button::after,
-  .justsnap-drop-add-folder .justsnap-dock-folder-button::after,
-  .justsnap-drop-add-folder .justsnap-dock-image-button::after {
+  .justsnap-drop-create-folder > .justsnap-dock-image-button::after,
+  .justsnap-drop-add-folder > .justsnap-dock-folder-button::after,
+  .justsnap-drop-add-folder > .justsnap-dock-image-button::after {
     content: "+";
     position: absolute;
     right: 5px;
@@ -469,7 +550,6 @@ export const styles = `
     background: #22c55e;
     box-shadow: 0 3px 8px rgba(15, 23, 42, 0.24);
     font-size: 13px;
-    font-weight: 900;
     line-height: 1;
   }
   .justsnap-dock-image-button:active { cursor: grabbing; }
@@ -480,12 +560,14 @@ export const styles = `
     z-index: 1;
     width: 52px;
     height: 52px;
-    border: 1px solid #353a43 !important;
+    border: 1px solid transparent !important;
     border-radius: 8px !important;
     padding: 4px !important;
     overflow: hidden;
-    background: #1a2029 !important;
-    box-shadow: 0 4px 12px rgba(3, 7, 18, 0.18);
+    background: var(--docksnip-folder-surface, #1a2029) !important;
+    box-shadow:
+      inset 0 0 10px rgba(255, 255, 255, 0.045),
+      0 5px 14px rgba(3, 7, 18, 0.24);
     cursor: grab;
     transform-origin: center right;
     translate: 0 -50%;
@@ -500,15 +582,20 @@ export const styles = `
     pointer-events: auto;
   }
   .justsnap-dock-folder-button:hover,
-  .justsnap-dock-folder-button:focus-visible {
-    border-color: rgba(125, 211, 252, 0.9) !important;
-    background: #222a35 !important;
-    box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.14), 0 14px 30px rgba(3, 7, 18, 0.25);
+  .justsnap-dock-folder-button:focus-visible,
+  .justsnap-dock-slot:hover > .justsnap-dock-folder-button,
+  .justsnap-dock-slot:focus-within > .justsnap-dock-folder-button,
+  .justsnap-dock-slot-hovered > .justsnap-dock-folder-button {
+    border-color: transparent !important;
+    background: var(--docksnip-folder-surface, #1a2029) !important;
+    box-shadow: 0 0 0 2px var(--docksnip-folder-border, rgba(255, 255, 255, 0.9)), 0 14px 30px rgba(3, 7, 18, 0.28);
     z-index: 2;
   }
   .justsnap-dock-add-target-folder {
-    border-color: #0ea5e9 !important;
-    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.22), 0 10px 24px rgba(15, 32, 48, 0.24) !important;
+    border-color: var(--docksnip-active-accent) !important;
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--docksnip-active-accent) 22%, transparent),
+      0 10px 24px rgba(15, 32, 48, 0.24) !important;
   }
   .justsnap-dock-folder-button:active { cursor: grabbing; }
   .justsnap-folder-grid {
@@ -530,8 +617,9 @@ export const styles = `
     background: #252a32;
   }
   .justsnap-dock-add {
-    --justsnap-add-size: clamp(18px, calc(var(--justsnap-dock-base, 52px) * 0.38), 22px);
-    --justsnap-add-inset: max(5px, calc(var(--justsnap-dock-base, 52px) * 0.1));
+    --justsnap-add-size: clamp(10px, calc(var(--justsnap-dock-base, 52px) * 0.385), 20px);
+    --justsnap-add-inset: var(--justsnap-action-inset);
+    --justsnap-add-icon-size: clamp(7px, calc(var(--justsnap-add-size) * 0.58), 12px);
     position: absolute;
     top: calc(50% + var(--justsnap-add-offset-y, 0px) + var(--justsnap-add-item-half, 26px) - var(--justsnap-add-size) - var(--justsnap-add-inset));
     right: var(--justsnap-add-inset);
@@ -540,37 +628,47 @@ export const styles = `
     min-width: var(--justsnap-add-size);
     height: var(--justsnap-add-size);
     padding: 0;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(20, 32, 48, 0.12);
     border-radius: 999px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    color: #fff;
-    background: #202630;
-    box-shadow: 0 6px 16px rgba(3, 7, 18, 0.3);
+    color: #243449;
+    background: #f5f7fa;
+    box-shadow: 0 6px 14px rgba(15, 32, 48, 0.18);
     line-height: 0;
     cursor: pointer;
     transition:
       top 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
       right 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
       background 140ms ease,
+      border-color 140ms ease,
+      box-shadow 140ms ease,
       scale 140ms ease,
       color 140ms ease;
     pointer-events: auto;
   }
-  .justsnap-dock-add:hover,
-  .justsnap-dock-add:focus-visible {
+  .justsnap-dock-add:hover:not(:disabled),
+  .justsnap-dock-add:focus-visible:not(:disabled) {
     color: #fff;
-    background: #16445d;
-    box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.16), 0 8px 18px rgba(3, 7, 18, 0.3);
+    border-color: var(--docksnip-success-border);
+    background: var(--docksnip-success-background);
+    box-shadow: 0 0 0 2px var(--docksnip-success-ring), 0 8px 18px rgba(3, 7, 18, 0.3);
     outline: none;
     scale: 1.08;
+  }
+  .justsnap-dock-add:active {
+    background: var(--docksnip-success-active);
+  }
+  .justsnap-dock-add:disabled {
+    cursor: default;
+    pointer-events: none;
   }
   .justsnap-dock-add svg {
     display: block;
     flex: 0 0 auto;
-    width: 13px;
-    height: 13px;
+    width: var(--justsnap-add-icon-size);
+    height: var(--justsnap-add-icon-size);
   }
   .justsnap-dock-image-button img {
     width: 100%;
@@ -583,11 +681,11 @@ export const styles = `
   .justsnap-dock-remove,
   .justsnap-dock-copy {
     position: absolute;
-    top: calc(50% + var(--justsnap-preview-offset-y, 0px) - var(--justsnap-dock-item-half, 26px) + 7px);
+    top: calc(50% + var(--justsnap-preview-offset-y, 0px) - var(--justsnap-dock-item-half, 26px) + var(--justsnap-action-inset));
     z-index: 5;
-    width: 24px !important;
-    min-width: 24px !important;
-    height: 24px !important;
+    width: var(--justsnap-action-size) !important;
+    min-width: var(--justsnap-action-size) !important;
+    height: var(--justsnap-action-size) !important;
     border: 1px solid rgba(20, 32, 48, 0.12) !important;
     border-radius: 999px !important;
     display: inline-flex;
@@ -598,22 +696,37 @@ export const styles = `
     box-shadow: 0 6px 14px rgba(15, 32, 48, 0.18);
     cursor: pointer;
     line-height: 0;
+    transition: color 140ms ease, background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, scale 140ms ease;
     pointer-events: auto;
   }
-  .justsnap-dock-remove { right: 7px; }
-  .justsnap-dock-copy { left: 7px; }
-  .justsnap-dock-remove:hover {
-    color: #b42318;
-    background: #fff !important;
+  .justsnap-dock-remove { right: var(--justsnap-action-inset); }
+  .justsnap-dock-copy { left: var(--justsnap-action-inset); }
+  .justsnap-dock-remove:hover,
+  .justsnap-dock-remove:focus-visible {
+    color: #fff;
+    border-color: rgba(254, 202, 202, 0.72) !important;
+    background: #c83b3f !important;
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2), 0 8px 18px rgba(15, 32, 48, 0.24);
+    outline: none;
+    scale: 1.08;
   }
-  .justsnap-dock-copy:hover {
-    color: #075985;
-    background: #fff !important;
+  .justsnap-dock-copy:hover,
+  .justsnap-dock-copy:focus-visible {
+    color: #fff;
+    border-color: rgba(191, 219, 254, 0.72) !important;
+    background: #2563eb !important;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2), 0 8px 18px rgba(15, 32, 48, 0.24);
+    outline: none;
+    scale: 1.08;
   }
+  .justsnap-dock-remove:active { background: #a92f33 !important; }
+  .justsnap-dock-copy:active { background: #1d4ed8 !important; }
   .justsnap-dock-remove svg,
   .justsnap-dock-copy svg {
     display: block;
     flex: 0 0 auto;
+    width: var(--justsnap-action-icon-size);
+    height: var(--justsnap-action-icon-size);
   }
   .justsnap-group-flyout {
     position: absolute;
@@ -650,7 +763,6 @@ export const styles = `
     z-index: 2147483646;
     cursor: crosshair;
     background: rgba(7, 14, 24, 0.24);
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     user-select: none;
     -webkit-user-select: none;
     touch-action: none;
@@ -665,22 +777,33 @@ export const styles = `
   .justsnap-capture-layer.justsnap-capture-frame-clean .justsnap-selection {
     opacity: 0;
   }
+  .justsnap-capture-toolbar.justsnap-capture-frame-clean-surface {
+    visibility: hidden !important;
+    animation: none !important;
+    transition: none !important;
+  }
+  .justsnap-rail.justsnap-capture-frame-clean-surface {
+    visibility: hidden !important;
+    animation: none !important;
+    transition: none !important;
+  }
   .justsnap-capture-toolbar {
     position: fixed;
-    top: 14px;
+    bottom: calc(var(--docksnip-toolbar-bottom-offset) + env(safe-area-inset-bottom, 0px));
     left: 50%;
     translate: -50% 0;
     width: fit-content;
+    min-width: var(--docksnip-toolbar-width);
     max-width: calc(100vw - 28px);
     min-height: 56px;
-    padding: 8px 8px 8px 18px;
+    padding: 8px;
     border: 1px solid var(--docksnip-panel-border);
     border-radius: 999px;
     display: flex;
     align-items: center;
     gap: 10px;
     color: #fff;
-    background: var(--docksnip-panel-background);
+    background: var(--docksnip-toolbar-background);
     box-shadow: var(--docksnip-panel-shadow);
     z-index: 2147483647;
     animation: docksnip-surface-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -689,11 +812,25 @@ export const styles = `
   .justsnap-capture-toolbar .justsnap-settings-button {
     display: none !important;
   }
+  .justsnap-toolbar-logomark {
+    display: block;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+    border-radius: 50%;
+    object-fit: contain;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
   .justsnap-snip-surface-retreated {
     pointer-events: none !important;
   }
   .justsnap-snip-dock-retreated {
     transform: translateX(calc(100% + 16px));
+    opacity: 0;
+  }
+  .justsnap-snip-toolbar-retreated {
+    transform: translateY(calc(100% + 16px));
     opacity: 0;
   }
   .justsnap-capture-toolbar-copy {
@@ -702,11 +839,10 @@ export const styles = `
     display: grid;
     gap: 1px;
     line-height: 1.15;
-    max-width: min(330px, 38vw);
+    max-width: none;
   }
   .justsnap-capture-toolbar-copy strong {
     font-size: 14.5px;
-    font-weight: 720;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -714,7 +850,6 @@ export const styles = `
   .justsnap-capture-toolbar-copy small {
     color: rgba(255,255,255,0.58);
     font-size: 11.5px;
-    font-weight: 500;
   }
   .justsnap-capture-toolbar button {
     flex: 0 0 auto;
@@ -732,7 +867,6 @@ export const styles = `
     cursor: pointer;
     font: inherit;
     font-size: 12px;
-    font-weight: 700;
     line-height: 1;
     white-space: nowrap;
     transition: background 140ms ease, color 140ms ease, scale 140ms ease, box-shadow 140ms ease;
@@ -751,15 +885,23 @@ export const styles = `
     height: 30px;
     border: 0;
     border-radius: 999px;
+    font-weight: var(--docksnip-button-font-weight) !important;
     color: rgba(255,255,255,0.72);
     background: transparent;
   }
-  .justsnap-capture-toolbar .justsnap-capture-modes .justsnap-capture-mode-active {
+  .justsnap-capture-toolbar .justsnap-capture-modes button:not(.justsnap-capture-mode-active):hover,
+  .justsnap-capture-toolbar .justsnap-capture-modes button:not(.justsnap-capture-mode-active):focus-visible {
     color: #fff;
-    background: #155f84;
+    background: var(--docksnip-control-hover);
+    box-shadow: 0 8px 18px rgba(3, 7, 18, 0.2);
+    outline: none;
+  }
+  .justsnap-capture-toolbar .justsnap-capture-modes .justsnap-capture-mode-active {
+    color: var(--docksnip-panel-background);
+    background: var(--docksnip-active-accent);
     box-shadow:
-      0 0 0 1px rgba(125, 211, 252, 0.38),
-      0 0 14px rgba(14, 165, 233, 0.12);
+      0 0 0 1px color-mix(in srgb, var(--docksnip-active-accent) 38%, transparent),
+      0 0 14px color-mix(in srgb, var(--docksnip-active-accent) 12%, transparent);
   }
   .justsnap-toolbar-destination {
     width: 34px;
@@ -789,9 +931,34 @@ export const styles = `
     grid-row: 1 / -1;
   }
   .justsnap-capture-toolbar .justsnap-capture-done {
+    border-radius: 999px;
     background: var(--docksnip-success-background);
     border-color: var(--docksnip-success-border);
     box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.08);
+  }
+  .justsnap-capture-toolbar .justsnap-capture-done .justsnap-toolbar-destination {
+    width: 24px;
+    height: 24px;
+    padding: 2px;
+    border-radius: 7px;
+    margin-left: -5px;
+    background: rgba(0, 0, 0, 0.18);
+  }
+  .justsnap-capture-toolbar .justsnap-capture-done .justsnap-toolbar-destination img {
+    border-radius: 3px;
+  }
+  .justsnap-shortcut-key {
+    width: 20px;
+    height: 20px;
+    border: 1px solid rgba(255,255,255,0.46);
+    border-radius: 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    background: rgba(0,0,0,0.14);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.18) inset, 0 1px 0 rgba(0,0,0,0.22);
+    font: inherit;
   }
   .justsnap-capture-toolbar .justsnap-capture-done:hover,
   .justsnap-capture-toolbar .justsnap-capture-done:focus-visible {
@@ -832,15 +999,21 @@ export const styles = `
     min-width: 36px;
     border-radius: 50%;
     padding: 0;
-    color: rgba(255, 255, 255, 0.78);
-    background: var(--docksnip-control-background);
+    color: rgba(245, 250, 255, 0.9);
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
   }
   .justsnap-capture-toolbar .justsnap-capture-close:hover,
   .justsnap-capture-toolbar .justsnap-capture-close:focus-visible {
-    color: #fff;
+    color: rgba(254, 202, 202, 0.98);
+    border-color: transparent;
     background: #4a2023;
-    border-color: rgba(252, 165, 165, 0.34);
+    box-shadow: 0 8px 18px rgba(3, 7, 18, 0.2);
+    outline: none;
+    scale: 1.06;
   }
+  .justsnap-capture-toolbar .justsnap-capture-close:active { background: #4a2023; }
   .justsnap-dock-group-slot {
     overflow: visible;
   }
@@ -857,7 +1030,7 @@ export const styles = `
     );
   }
   .justsnap-dock-group-slot .justsnap-dock-remove {
-    top: calc(var(--justsnap-folder-item-gap, 8px) / 2 + 7px);
+    top: calc(var(--justsnap-folder-item-gap, 8px) / 2 + var(--justsnap-action-inset));
   }
   .justsnap-dock-group-slot > .justsnap-group-flyout {
     top: calc(var(--justsnap-folder-item-gap, 8px) / 2 + var(--justsnap-folder-size, 52px) / 2);
@@ -868,17 +1041,8 @@ export const styles = `
     place-self: center;
     color: rgba(255, 255, 255, 0.72);
   }
-  .justsnap-empty-folder-message {
-    width: 92px;
-    padding: 8px;
-    color: rgba(15, 23, 42, 0.62);
-    font-size: 10px;
-    line-height: 1.25;
-    text-align: center;
-  }
   .justsnap-rail-bottom-control-slot {
     margin: 0;
-    padding-bottom: 2px;
   }
   .justsnap-clear-dock-control:hover:not(:disabled),
   .justsnap-clear-dock-control:focus-visible {
@@ -886,20 +1050,16 @@ export const styles = `
     background: #4a2023;
   }
   .justsnap-dock-delete-confirm {
-    position: fixed;
-    top: 76px;
-    left: 50%;
-    z-index: 2147483647;
-    width: var(--docksnip-toolbar-width);
+    position: relative;
+    width: min(560px, calc(100vw - 32px));
     min-height: 52px;
     padding: 9px 9px 9px 13px;
     border: 1px solid rgba(248,113,113,0.42);
-    border-radius: 18px;
+    border-radius: 999px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    translate: -50% 0;
     color: #fff;
     background: var(--docksnip-panel-background);
     box-shadow: var(--docksnip-panel-shadow);
@@ -910,14 +1070,14 @@ export const styles = `
   .justsnap-dock-delete-confirm strong { font-size: 13px; }
   .justsnap-dock-delete-confirm small { color: rgba(255,255,255,0.68); font-size: 11px; }
   .justsnap-dock-delete-confirm > div { display: flex; flex: 0 0 auto; gap: 7px; }
-  .justsnap-dock-delete-confirm button { height: 34px; padding: 0 12px; border: 1px solid var(--docksnip-control-border); border-radius: 11px; color: #fff; background: var(--docksnip-control-background); font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+  .justsnap-dock-delete-confirm button { height: 34px; padding: 0 12px; border: 1px solid var(--docksnip-control-border); border-radius: 999px; color: #fff; background: var(--docksnip-control-background); font-size: 12px; white-space: nowrap; cursor: pointer; }
   .justsnap-dock-delete-confirm button:hover,
   .justsnap-dock-delete-confirm button:focus-visible { background: var(--docksnip-control-hover); outline: none; }
   .justsnap-dock-delete-confirm .justsnap-danger-button { background: #512326; border-color: rgba(248,113,113,0.42); }
   .justsnap-selection {
     position: fixed;
-    border: 2px solid #45a6ff;
-    background: rgba(69, 166, 255, 0.12);
+    border: 2px solid var(--docksnip-active-accent);
+    background: color-mix(in srgb, var(--docksnip-active-accent) 12%, transparent);
     box-shadow: 0 0 0 9999px rgba(7, 14, 24, 0.34);
   }
   @keyframes docksnip-surface-enter {
@@ -925,14 +1085,14 @@ export const styles = `
     to { opacity: 1; scale: 1; }
   }
   @keyframes docksnip-notice-enter {
-    0% { opacity: 0; translate: -50% -10px; scale: 0.97; }
+    0% { opacity: 0; translate: 0 10px; scale: 0.97; }
     62% {
       opacity: 1;
-      translate: -50% 2px;
+      translate: 0 2px;
       scale: 1.008;
       box-shadow: var(--docksnip-panel-shadow), 0 0 0 4px color-mix(in srgb, var(--docksnip-notice-accent) 13%, transparent);
     }
-    100% { opacity: 1; translate: -50% 0; scale: 1; }
+    100% { opacity: 1; translate: 0 0; scale: 1; }
   }
   @keyframes docksnip-notice-icon-pop {
     0% { opacity: 0; scale: 0.72; rotate: -10deg; }
@@ -946,13 +1106,13 @@ export const styles = `
   @media (max-width: 680px) {
     :host {
       --docksnip-toolbar-width: calc(100vw - 16px);
-      --docksnip-notice-width: min(420px, calc(100vw - 48px));
+      --docksnip-notice-width: min(520px, calc(100vw - 48px));
     }
     .justsnap-capture-toolbar {
       width: calc(100vw - 16px);
       max-width: calc(100vw - 16px);
       min-height: 52px;
-      padding: 7px 7px 7px 12px;
+      padding: 7px 8px;
       gap: 7px;
       border-radius: 999px;
     }
@@ -976,7 +1136,7 @@ export const styles = `
     .justsnap-toolbar-notice { padding: 5px 6px; }
     .justsnap-dock-delete-confirm {
       padding-left: 10px;
-      border-radius: 16px;
+      border-radius: 999px;
     }
   }
   @media (max-width: 500px) {

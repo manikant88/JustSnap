@@ -62,6 +62,45 @@ export function dockBaseIslandPath(options: {
   ].join(" ");
 }
 
+export function dockBaseIslandEdgePath(options: {
+  width: number;
+  height: number;
+  joinRadius?: number;
+  outerRadius?: number;
+}): string {
+  const width = finiteNumber(options.width);
+  const height = finiteNumber(options.height);
+  if (width <= 0 || height <= 0) return "";
+
+  const joinRadius = clamp(
+    finiteNumber(options.joinRadius ?? 20),
+    0,
+    Math.min(width, height / 4)
+  );
+  const outerRadius = clamp(
+    finiteNumber(options.outerRadius ?? 28),
+    0,
+    Math.min(width, (height - joinRadius * 2) / 2)
+  );
+  const bodyTop = joinRadius;
+  const bodyBottom = height - joinRadius;
+
+  return [
+    `M ${pathNumber(width)} 0`,
+    `Q ${pathNumber(width)} ${pathNumber(bodyTop)} ${pathNumber(
+      width - joinRadius
+    )} ${pathNumber(bodyTop)}`,
+    `H ${pathNumber(outerRadius)}`,
+    `Q 0 ${pathNumber(bodyTop)} 0 ${pathNumber(bodyTop + outerRadius)}`,
+    `V ${pathNumber(bodyBottom - outerRadius)}`,
+    `Q 0 ${pathNumber(bodyBottom)} ${pathNumber(outerRadius)} ${pathNumber(bodyBottom)}`,
+    `H ${pathNumber(width - joinRadius)}`,
+    `Q ${pathNumber(width)} ${pathNumber(bodyBottom)} ${pathNumber(width)} ${pathNumber(
+      height
+    )}`
+  ].join(" ");
+}
+
 export function dynamicIslandPath(options: {
   width: number;
   height: number;
@@ -121,6 +160,50 @@ export function dynamicIslandPath(options: {
     `V ${pathNumber(height)}`,
     `H ${pathNumber(width)}`,
     "Z"
+  ].join(" ");
+}
+
+export function dynamicIslandEdgePath(options: {
+  width: number;
+  height: number;
+  baselineLeft: number;
+  regions: DynamicIslandRegion[];
+}): string {
+  const width = finiteNumber(options.width);
+  const baselineLeft = clamp(finiteNumber(options.baselineLeft), 0, width);
+  if (width <= 0 || finiteNumber(options.height) <= 0 || options.regions.length === 0) return "";
+
+  const regions = normalizeIslandRegions(options.regions, width, baselineLeft);
+  if (regions.length === 0) return "";
+
+  const region = regions.reduce((outermost, candidate) =>
+    candidate.left < outermost.left ? candidate : outermost
+  );
+  const protrusion = baselineLeft - region.left;
+  if (protrusion < 0.1) return "";
+
+  const itemHeight = region.bottom - region.top;
+  const outerRadius = Math.min(region.outerCurve, itemHeight / 2);
+  const [topJoinRadius, topOuterRadius] = fitIslandRadii(region.curve, outerRadius, protrusion);
+  const [bottomJoinRadius, bottomOuterRadius] = fitIslandRadii(region.curve, outerRadius, protrusion);
+
+  return [
+    `M ${pathNumber(baselineLeft)} ${pathNumber(region.top - topJoinRadius)}`,
+    `Q ${pathNumber(baselineLeft)} ${pathNumber(region.top)} ${pathNumber(
+      baselineLeft - topJoinRadius
+    )} ${pathNumber(region.top)}`,
+    `H ${pathNumber(region.left + topOuterRadius)}`,
+    `Q ${pathNumber(region.left)} ${pathNumber(region.top)} ${pathNumber(
+      region.left
+    )} ${pathNumber(region.top + topOuterRadius)}`,
+    `V ${pathNumber(region.bottom - bottomOuterRadius)}`,
+    `Q ${pathNumber(region.left)} ${pathNumber(region.bottom)} ${pathNumber(
+      region.left + bottomOuterRadius
+    )} ${pathNumber(region.bottom)}`,
+    `H ${pathNumber(baselineLeft - bottomJoinRadius)}`,
+    `Q ${pathNumber(baselineLeft)} ${pathNumber(region.bottom)} ${pathNumber(
+      baselineLeft
+    )} ${pathNumber(region.bottom + bottomJoinRadius)}`
   ].join(" ");
 }
 

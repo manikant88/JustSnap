@@ -3,22 +3,23 @@ import {
   addCapture,
   applyLibraryMutation,
   normalizeLibrary,
+  restoreClearedLibrary,
+  restoreDeletedCapture,
   restoreDeletedGroup,
   revealUnownedCaptures
 } from "../shared/libraryModel";
 import { getLibrary, saveLibrary } from "../shared/storage";
-import type { Capture, CaptureGroup, GroupDeletionResult, LibraryMutation, LibraryState } from "../shared/types";
+import type { Capture, DeletionKind, DeletionResult, LibraryMutation, LibraryState } from "../shared/types";
 
 let mutationQueue: Promise<unknown> = Promise.resolve();
 let integrityPromise: Promise<void> | undefined;
-const GROUP_DELETE_UNDO_MS = 10_000;
-type PendingGroupDeletion = {
-  group: CaptureGroup;
+const DELETE_UNDO_MS = 5_000;
+type PendingDeletion = {
   captures: Capture[];
-  railIndex: number;
+  restore: (library: LibraryState) => LibraryState;
   timer: ReturnType<typeof setTimeout>;
 };
-const pendingGroupDeletions = new Map<string, PendingGroupDeletion>();
+const pendingDeletions = new Map<string, PendingDeletion>();
 
 export function readLibrary(): Promise<LibraryState> {
   return serialize(async () => {
@@ -34,7 +35,7 @@ function ensureLibraryIntegrity(): Promise<void> {
     const blobKeys = new Set(await listImageBlobKeys());
     const validCaptures = library.captures.filter((capture) => blobKeys.has(capture.imageBlobKey));
     const referenced = new Set(validCaptures.map((capture) => capture.imageBlobKey));
-    for (const deletion of pendingGroupDeletions.values()) {
+    for (const deletion of pendingDeletions.values()) {
       for (const capture of deletion.captures) referenced.add(capture.imageBlobKey);
     }
     const orphans = [...blobKeys].filter((key) => !referenced.has(key));
@@ -68,7 +69,25 @@ export function recoverUnownedCaptures(pendingCaptureIds: readonly string[] = []
   return updateLibrary((library) => revealUnownedCaptures(library, pendingCaptureIds));
 }
 
-export function stageGroupDeletion(groupId: string): Promise<GroupDeletionResult> {
+export function stageCaptureDeletion(captureId: string): Promise<DeletionResult> {
+  return serialize(async () => {
+    const current = await getLibrary();
+    const capture = current.captures.find((entry) => entry.id === captureId);
+    if (!capture) return { library: current };
+    const group = current.groups.find((entry) => entry.captureIds.includes(captureId));
+    const placement = {
+      railIndex: Math.max(0, current.railOrder.findIndex((item) => item.kind === "capture" && item.id === captureId)),
+      ...(group ? { groupId: group.id, groupIndex: group.captureIds.indexOf(captureId) } : {})
+    };
+    const library = applyLibraryMutation(current, { type: "delete_capture", captureId });
+    await saveLibrary(library);
+    return stageDeletion("capture", library, [capture], (latest) =>
+      restoreDeletedCapture(latest, capture, placement)
+    );
+  });
+}
+
+export function stageGroupDeletion(groupId: string): Promise<DeletionResult> {
   return serialize(async () => {
     const current = await getLibrary();
     const group = current.groups.find((entry) => entry.id === groupId);
@@ -79,33 +98,62 @@ export function stageGroupDeletion(groupId: string): Promise<GroupDeletionResult
     const library = applyLibraryMutation(current, { type: "delete_group", groupId });
     await saveLibrary(library);
 
-    const deletionId = crypto.randomUUID();
-    const expiresAt = Date.now() + GROUP_DELETE_UNDO_MS;
-    const timer = setTimeout(() => void finalizeGroupDeletion(deletionId), GROUP_DELETE_UNDO_MS);
-    pendingGroupDeletions.set(deletionId, { group, captures, railIndex, timer });
-    return { library, deletionId, expiresAt };
+    return stageDeletion("group", library, captures, (latest) =>
+      restoreDeletedGroup(latest, group, captures, railIndex)
+    );
   });
 }
 
-export function undoGroupDeletion(deletionId: string): Promise<LibraryState> {
+export function stageClearLibrary(): Promise<DeletionResult> {
   return serialize(async () => {
-    const deletion = pendingGroupDeletions.get(deletionId);
+    const current = await getLibrary();
+    if (!current.captures.length && !current.groups.length) return { library: current };
+    const library = applyLibraryMutation(current, { type: "clear_library" });
+    await saveLibrary(library);
+    return stageDeletion("dock", library, current.captures, (latest) =>
+      restoreClearedLibrary(latest, current)
+    );
+  });
+}
+
+export function undoDeletion(deletionId: string): Promise<LibraryState> {
+  return serialize(async () => {
+    const deletion = pendingDeletions.get(deletionId);
     const current = await getLibrary();
     if (!deletion) return current;
     clearTimeout(deletion.timer);
-    pendingGroupDeletions.delete(deletionId);
-    const restored = restoreDeletedGroup(current, deletion.group, deletion.captures, deletion.railIndex);
+    pendingDeletions.delete(deletionId);
+    const restored = deletion.restore(current);
     await saveLibrary(restored);
     return restored;
   });
 }
 
-function finalizeGroupDeletion(deletionId: string): Promise<void> {
+function stageDeletion(
+  kind: DeletionKind,
+  library: LibraryState,
+  captures: Capture[],
+  restore: (library: LibraryState) => LibraryState
+): DeletionResult {
+  const deletionId = crypto.randomUUID();
+  const expiresAt = Date.now() + DELETE_UNDO_MS;
+  const timer = setTimeout(() => void finalizeDeletion(deletionId), DELETE_UNDO_MS);
+  pendingDeletions.set(deletionId, { captures, restore, timer });
+  return { library, deletionId, expiresAt, kind };
+}
+
+function finalizeDeletion(deletionId: string): Promise<void> {
   return serialize(async () => {
-    const deletion = pendingGroupDeletions.get(deletionId);
+    const deletion = pendingDeletions.get(deletionId);
     if (!deletion) return;
-    pendingGroupDeletions.delete(deletionId);
-    await Promise.all(deletion.captures.map((capture) => deleteImageBlob(capture.imageBlobKey).catch(() => undefined)));
+    pendingDeletions.delete(deletionId);
+    const current = await getLibrary();
+    const retainedBlobKeys = new Set(current.captures.map((capture) => capture.imageBlobKey));
+    await Promise.all(
+      deletion.captures
+        .filter((capture) => !retainedBlobKeys.has(capture.imageBlobKey))
+        .map((capture) => deleteImageBlob(capture.imageBlobKey).catch(() => undefined))
+    );
   });
 }
 

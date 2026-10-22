@@ -1,4 +1,4 @@
-import type { CaptureAddTarget } from "./types";
+import type { CaptureAddTarget, ContentMessage } from "./types";
 
 export type ActiveCaptureSession = {
   id: string;
@@ -11,7 +11,7 @@ export type ActiveCaptureSession = {
 export function parseStoredCaptureSession(value: unknown): ActiveCaptureSession | undefined {
   if (!isRecord(value) || !isId(value.id) || !Array.isArray(value.captureIds) || !isFiniteNumber(value.startedAt)) return undefined;
   if (!value.captureIds.every(isId)) return undefined;
-  const addTarget = value.addTarget === undefined ? undefined : parseAddTarget(value.addTarget);
+  const addTarget = value.addTarget === undefined ? undefined : parseStoredAddTarget(value.addTarget);
   if (value.addTarget !== undefined && !addTarget) return undefined;
   const tabId = typeof value.tabId === "number" && Number.isInteger(value.tabId) ? value.tabId : undefined;
   return {
@@ -23,9 +23,28 @@ export function parseStoredCaptureSession(value: unknown): ActiveCaptureSession 
   };
 }
 
-function parseAddTarget(value: unknown): CaptureAddTarget | undefined {
+export function parseStoredAddTarget(value: unknown): CaptureAddTarget | undefined {
   if (!isRecord(value) || (value.kind !== "capture" && value.kind !== "group") || !isId(value.id)) return undefined;
   return { kind: value.kind, id: value.id };
+}
+
+export function contentMessageForRuntimeState(
+  session?: ActiveCaptureSession,
+  addTarget?: CaptureAddTarget
+): ContentMessage {
+  if (session) {
+    return {
+      type: "JUSTSNAP_START_CAPTURE",
+      sessionId: session.id,
+      captureCount: session.captureIds.length,
+      captureIds: [...session.captureIds],
+      ...(session.addTarget ? { addTarget: session.addTarget } : {})
+    };
+  }
+  return {
+    type: "JUSTSNAP_SHOW_RAIL",
+    ...(addTarget ? { addTarget } : {})
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

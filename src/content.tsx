@@ -5,6 +5,7 @@ import {
   AlertCircle,
   AlertTriangle,
   Check,
+  Copy,
   CornerDownLeft,
   FolderPlus,
   Info,
@@ -15,10 +16,15 @@ import {
 import { groupContaining } from "../shared/libraryModel";
 import { dockLayoutForCount } from "./content/dockLayout";
 import { DockFrame } from "./content/docks/DockFrame";
-import { captureFileForDrag, copyFilesToClipboard, dragPreviewElement } from "./content/drag/filePayload";
+import { friendlyErrorMessage, isInsertionFailure } from "./content/errorMessages";
+import { captureFileForDrag, copyFilesToClipboard, dragPreviewElement, prepareDeliveryImage } from "./content/drag/filePayload";
 import { deliveryCaptureKey, filesForDelivery } from "./content/drag/deliveryPreparation";
-import { placeFilesInCurrentPage } from "./content/drag/pageInsert";
+import {
+  placeFilesInCurrentPage,
+  shouldSuppressNativePageDrop
+} from "./content/drag/pageInsert";
 import { LibraryView } from "./content/rail/LibraryView";
+import { snipAvoidanceForSelection, type SnipAvoidance } from "./content/snipAvoidance";
 import { styles } from "./content/styles";
 import type { DragPayload, InternalDrag, Point, RailDropIntent, Rect } from "./content/types";
 import type {
@@ -30,7 +36,8 @@ import type {
   CaptureSelectionResult,
   CaptureSessionSnapshot,
   ContentMessage,
-  GroupDeletionResult,
+  DeletionKind,
+  DeletionResult,
   LibraryState,
   LibraryMutation,
   RailOrderItem
@@ -40,14 +47,13 @@ const MIN_SELECTION_WIDTH = 32;
 const MIN_SELECTION_HEIGHT = 32;
 const RAIL_CONTROL_ENTRY_COUNT = 3;
 const MAX_BLOB_CACHE_ENTRIES = 16;
-const SNIP_RETREAT_DISTANCE = 80;
-const SNIP_RETURN_DISTANCE = 150;
-const TOOLBAR_NOTICE_MS = 10_000;
+const TOOLBAR_NOTICE_MS = 5_000;
 
 type DockInputMode = "dock" | "snip";
 
 let root: ReturnType<typeof createRoot> | undefined;
 let host: HTMLDivElement | undefined;
+let hostGroteskFont: FontFace | undefined;
 
 type ContentRuntimeMarker = typeof globalThis & {
   __docksnipContentListenerInstalled?: boolean;
@@ -57,7 +63,7 @@ const contentRuntime = globalThis as ContentRuntimeMarker;
 if (!contentRuntime.__docksnipContentListenerInstalled) {
   contentRuntime.__docksnipContentListenerInstalled = true;
   chrome.runtime.onMessage.addListener((message: ContentMessage) => {
-    if (message.type === "JUSTSNAP_SHOW_RAIL") mountRail();
+    if (message.type === "JUSTSNAP_SHOW_RAIL") mountRail(message);
     if (message.type === "JUSTSNAP_START_CAPTURE") mountRail(message);
     if (message.type === "JUSTSNAP_CLOSE_RAIL") unmountRail();
     if (message.type === "JUSTSNAP_CAPTURE_ERROR") mountRail(message);
@@ -66,6 +72,7 @@ if (!contentRuntime.__docksnipContentListenerInstalled) {
 
 type ContentCommand =
   | { id: number; type: "start_capture"; session: CaptureSessionSnapshot }
+  | { id: number; type: "restore_add_target"; addTarget?: CaptureAddTarget }
   | { id: number; type: "show_error"; error: string };
 
 type PageImageAffordance = {
@@ -82,7 +89,8 @@ type PageImageTarget = {
 
 let commandId = 0;
 
-function mountRail(message?: Extract<ContentMessage, { type: "JUSTSNAP_START_CAPTURE" | "JUSTSNAP_CAPTURE_ERROR" }>) {
+function mountRail(message?: ContentMessage) {
+  ensureHostGroteskFont();
   if (host && !host.isConnected) {
     root = undefined;
     host = undefined;
@@ -102,12 +110,29 @@ function mountRail(message?: Extract<ContentMessage, { type: "JUSTSNAP_START_CAP
       command={
         message?.type === "JUSTSNAP_START_CAPTURE"
           ? { id: ++commandId, type: "start_capture", session: message }
+          : message?.type === "JUSTSNAP_SHOW_RAIL"
+            ? { id: ++commandId, type: "restore_add_target", addTarget: message.addTarget }
           : message?.type === "JUSTSNAP_CAPTURE_ERROR"
             ? { id: ++commandId, type: "show_error", error: message.error }
             : undefined
       }
     />
   );
+}
+
+function ensureHostGroteskFont(): void {
+  if (hostGroteskFont) return;
+  const font = new FontFace(
+    "Host Grotesk",
+    `url("${chrome.runtime.getURL("fonts/HostGrotesk-Variable.woff2")}") format("woff2")`,
+    { style: "normal", weight: "100 900" }
+  );
+  hostGroteskFont = font;
+  document.fonts.add(font);
+  void font.load().catch(() => {
+    document.fonts.delete(font);
+    if (hostGroteskFont === font) hostGroteskFont = undefined;
+  });
 }
 
 function unmountRail() {
@@ -118,9 +143,19 @@ function unmountRail() {
 }
 
 function DockSnipApp({ command }: { command?: ContentCommand }) {
+  const notificationSequenceRef = useRef(0);
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [groups, setGroups] = useState<CaptureGroup[]>([]);
-  const [clearDockPending, setClearDockPending] = useState(false);
+  const [clearDockState, setClearDockState] = useState({ pending: false, sequence: 0 });
+  const clearDockPending = clearDockState.pending;
+  const setClearDockPending = (pending: boolean) => {
+    if (pending) {
+      notificationSequenceRef.current += 1;
+      setClearDockState({ pending: true, sequence: notificationSequenceRef.current });
+      return;
+    }
+    setClearDockState((current) => ({ ...current, pending: false }));
+  };
   const [railOrder, setRailOrder] = useState<RailOrderItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [inputMode, setInputMode] = useState<DockInputMode>("dock");
@@ -129,19 +164,40 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
   const [activeAddTarget, setActiveAddTarget] = useState<CaptureAddTarget | null>(null);
   const [pendingAddCaptureIds, setPendingAddCaptureIds] = useState<string[]>([]);
   const [railInteractionActive, setRailInteractionActive] = useState(false);
+  const [flyoutDismissRevision, setFlyoutDismissRevision] = useState(0);
   const [start, setStart] = useState<Point | null>(null);
   const [current, setCurrent] = useState<Point | null>(null);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [pendingGroupDeletion, setPendingGroupDeletion] = useState<{
+  const [errorState, setErrorState] = useState({ message: "", sequence: 0 });
+  const error = errorState.message;
+  const setError = (message: string) => {
+    if (message) {
+      notificationSequenceRef.current += 1;
+      setErrorState({ message, sequence: notificationSequenceRef.current });
+      return;
+    }
+    setErrorState((current) => ({ ...current, message: "" }));
+  };
+  const [noticeState, setNoticeState] = useState({ message: "", sequence: 0 });
+  const notice = noticeState.message;
+  const setNotice = (message: string) => {
+    if (message) {
+      notificationSequenceRef.current += 1;
+      setNoticeState({ message, sequence: notificationSequenceRef.current });
+      return;
+    }
+    setNoticeState((current) => ({ ...current, message: "" }));
+  };
+  const [pendingDeletion, setPendingDeletion] = useState<{
     deletionId: string;
     expiresAt: number;
+    kind: DeletionKind;
   } | null>(null);
   const [dragging, setDragging] = useState<InternalDrag | null>(null);
   const [blobCache, setBlobCache] = useState<Record<string, Blob>>({});
   const blobCacheRef = useRef<Record<string, Blob>>({});
   const blobLoadRef = useRef(new Map<string, Promise<Blob | undefined>>());
   const preparedDeliveryRef = useRef<{ key: string; blobs: Map<string, Blob> } | null>(null);
+  const deliveryBlobCacheRef = useRef(new Map<string, { source: Blob; delivery: Blob }>());
   const preparationRevisionRef = useRef(0);
   const [preparedDeliveryKey, setPreparedDeliveryKey] = useState("");
   const [recentlyAddedCaptureId, setRecentlyAddedCaptureId] = useState<string | null>(null);
@@ -152,10 +208,12 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
   const captureSessionPromiseRef = useRef<Promise<CaptureSessionSnapshot> | null>(null);
   const pageImageSavedTimerRef = useRef<number | null>(null);
   const [pageImageAffordance, setPageImageAffordance] = useState<PageImageAffordance | null>(null);
-  const [snipDockRetreated, setSnipDockRetreated] = useState(false);
+  const [snipAvoidance, setSnipAvoidance] = useState<SnipAvoidance>({ toolbar: false, dock: false });
+  const snipAvoidanceRef = useRef<SnipAvoidance>({ toolbar: false, dock: false });
   const dockRef = useRef<HTMLElement | null>(null);
-  const snipDockLatchedRef = useRef(false);
+  const captureToolbarRef = useRef<HTMLDivElement | null>(null);
   const snipDockOriginRectRef = useRef<DOMRect | null>(null);
+  const snipToolbarOriginRectRef = useRef<DOMRect | null>(null);
   const captureMode = inputMode === "snip";
 
   const applyLibraryState = useCallback((library: LibraryState) => {
@@ -201,6 +259,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
       }
       blobLoadRef.current.clear();
       preparedDeliveryRef.current = null;
+      deliveryBlobCacheRef.current.clear();
     },
     []
   );
@@ -227,10 +286,33 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
         return blob ? ([capture.id, blob] as const) : undefined;
       })
     );
-    if (preparationRevisionRef.current !== preparationRevision) return;
     const completeEntries = loadedEntries.filter((entry): entry is readonly [string, Blob] => Boolean(entry));
     if (completeEntries.length !== captureIds.length) return;
-    preparedDeliveryRef.current = { key, blobs: new Map(completeEntries) };
+    let deliveryEntries: Array<readonly [string, Blob]>;
+    try {
+      deliveryEntries = await Promise.all(
+        completeEntries.map(async ([captureId, source]) => {
+          const cached = deliveryBlobCacheRef.current.get(captureId);
+          if (cached?.source === source) return [captureId, cached.delivery] as const;
+          const delivery = await prepareDeliveryImage(source);
+          deliveryBlobCacheRef.current.delete(captureId);
+          deliveryBlobCacheRef.current.set(captureId, { source, delivery });
+          while (deliveryBlobCacheRef.current.size > MAX_BLOB_CACHE_ENTRIES) {
+            const oldestCaptureId = deliveryBlobCacheRef.current.keys().next().value;
+            if (!oldestCaptureId) break;
+            deliveryBlobCacheRef.current.delete(oldestCaptureId);
+          }
+          return [captureId, delivery] as const;
+        })
+      );
+    } catch (preparationError) {
+      if (preparationRevisionRef.current === preparationRevision) {
+        setError(`Could not prepare this image for delivery. ${errorText(preparationError)}`);
+      }
+      return;
+    }
+    if (preparationRevisionRef.current !== preparationRevision) return;
+    preparedDeliveryRef.current = { key, blobs: new Map(deliveryEntries) };
     setPreparedDeliveryKey(key);
     addToBlobCache(loadedEntries);
   }, [addToBlobCache, captures]);
@@ -242,11 +324,31 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
         lastDragPoint.current = { x: event.clientX, y: event.clientY };
       }
     };
+    const handlePageDrop = (event: DragEvent) => {
+      rememberDragPoint(event);
+      const pathTarget = event.composedPath()[0];
+      const targetNode = pathTarget instanceof Node
+        ? pathTarget
+        : event.target instanceof Node
+          ? event.target
+          : null;
+      const dropOptions = {
+        hasPendingPayload: Boolean(pendingDragPayload.current),
+        isTrusted: event.isTrusted,
+        isDockSnipTarget: Boolean(targetNode && isDockSnipNode(targetNode))
+      };
+      if (!shouldSuppressNativePageDrop({
+        ...dropOptions
+      })) return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
     document.addEventListener("dragover", rememberDragPoint, true);
-    document.addEventListener("drop", rememberDragPoint, true);
+    document.addEventListener("drop", handlePageDrop, true);
     return () => {
       document.removeEventListener("dragover", rememberDragPoint, true);
-      document.removeEventListener("drop", rememberDragPoint, true);
+      document.removeEventListener("drop", handlePageDrop, true);
     };
   }, []);
 
@@ -264,15 +366,15 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
 
   useEffect(() => {
     if (!notice) return;
-    const delay = pendingGroupDeletion
-      ? Math.max(0, pendingGroupDeletion.expiresAt - Date.now())
+    const delay = pendingDeletion
+      ? Math.max(0, pendingDeletion.expiresAt - Date.now())
       : TOOLBAR_NOTICE_MS;
     const timer = window.setTimeout(() => {
-      setPendingGroupDeletion(null);
+      setPendingDeletion(null);
       setNotice("");
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [notice, pendingGroupDeletion]);
+  }, [notice, pendingDeletion]);
 
   useEffect(() => {
     captureSessionRef.current = captureSession;
@@ -295,9 +397,11 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
       });
     } finally {
       setCaptureFrameClean(false);
-      setSnipDockRetreated(false);
-      snipDockLatchedRef.current = false;
+      const clearedAvoidance = { toolbar: false, dock: false };
+      snipAvoidanceRef.current = clearedAvoidance;
+      setSnipAvoidance(clearedAvoidance);
       snipDockOriginRectRef.current = null;
+      snipToolbarOriginRectRef.current = null;
     }
   };
 
@@ -324,6 +428,9 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
       await finishSnipSession({ keepDestination: false });
     }
     setActiveAddTarget(addTarget);
+    await sendBackground({ type: "JUSTSNAP_SET_ADD_TARGET", addTarget }).catch((targetError) =>
+      setError(errorText(targetError))
+    );
     setInputMode("dock");
     setPendingAddCaptureIds([]);
     setStart(null);
@@ -378,9 +485,10 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
     event.currentTarget.setPointerCapture(event.pointerId);
     const point = { x: event.clientX, y: event.clientY };
     snipDockOriginRectRef.current = dockRef.current?.getBoundingClientRect() ?? null;
-    snipDockLatchedRef.current =
-      distanceFromPointToRect(point, snipDockOriginRectRef.current ?? undefined) <= SNIP_RETREAT_DISTANCE;
-    setSnipDockRetreated(snipDockLatchedRef.current);
+    snipToolbarOriginRectRef.current = captureToolbarRef.current?.getBoundingClientRect() ?? null;
+    const clearedAvoidance = { toolbar: false, dock: false };
+    snipAvoidanceRef.current = clearedAvoidance;
+    setSnipAvoidance(clearedAvoidance);
     setStart(point);
     setCurrent(point);
   };
@@ -395,17 +503,31 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    if (!start || !current) return;
-    const rect = normalizeRect(start, current);
-    setStart(null);
-    setCurrent(null);
+    if (!start) return;
+    const endPoint = { x: event.clientX, y: event.clientY };
+    const rect = normalizeRect(start, endPoint);
     if (rect.width < MIN_SELECTION_WIDTH || rect.height < MIN_SELECTION_HEIGHT) {
-      setSnipDockRetreated(false);
-      snipDockLatchedRef.current = false;
+      setStart(null);
+      setCurrent(null);
+      const clearedAvoidance = { toolbar: false, dock: false };
+      snipAvoidanceRef.current = clearedAvoidance;
+      setSnipAvoidance(clearedAvoidance);
       snipDockOriginRectRef.current = null;
+      snipToolbarOriginRectRef.current = null;
       setError("Select a larger area.");
       return;
     }
+
+    const finalAvoidance = snipAvoidanceForSelection(rect, {
+      dock: snipDockOriginRectRef.current,
+      toolbar: snipToolbarOriginRectRef.current
+    });
+    snipAvoidanceRef.current = finalAvoidance;
+    flushSync(() => {
+      setSnipAvoidance(finalAvoidance);
+      setStart(null);
+      setCurrent(null);
+    });
 
     try {
       let session = captureSessionRef.current;
@@ -443,9 +565,11 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
     setStart(null);
     setCurrent(null);
     captureSessionPromiseRef.current = null;
-    setSnipDockRetreated(false);
-    snipDockLatchedRef.current = false;
+    const clearedAvoidance = { toolbar: false, dock: false };
+    snipAvoidanceRef.current = clearedAvoidance;
+    setSnipAvoidance(clearedAvoidance);
     snipDockOriginRectRef.current = null;
+    snipToolbarOriginRectRef.current = null;
     if (!options.keepAddTarget) setActiveAddTarget(null);
   };
 
@@ -463,11 +587,16 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
     setStart(null);
     setCurrent(null);
     setCaptureFrameClean(false);
-    setSnipDockRetreated(false);
-    snipDockLatchedRef.current = false;
+    const clearedAvoidance = { toolbar: false, dock: false };
+    snipAvoidanceRef.current = clearedAvoidance;
+    setSnipAvoidance(clearedAvoidance);
     snipDockOriginRectRef.current = null;
+    snipToolbarOriginRectRef.current = null;
     if (!session) {
-      if (!keepDestination) setActiveAddTarget(null);
+      if (!keepDestination) {
+        setActiveAddTarget(null);
+        await sendBackground({ type: "JUSTSNAP_SET_ADD_TARGET" }).catch(() => undefined);
+      }
       return;
     }
     setCaptureSession(null);
@@ -484,11 +613,18 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
       applyLibraryState(library);
       if (keepDestination && previousTarget?.kind === "capture") {
         const createdGroup = library.groups.find((group) => group.captureIds.includes(previousTarget.id));
-        if (createdGroup) setActiveAddTarget({ kind: "group", id: createdGroup.id });
+        if (createdGroup) {
+          const nextTarget = { kind: "group" as const, id: createdGroup.id };
+          setActiveAddTarget(nextTarget);
+          await sendBackground({ type: "JUSTSNAP_SET_ADD_TARGET", addTarget: nextTarget }).catch(() => undefined);
+        }
       }
     }
     setPendingAddCaptureIds([]);
-    if (!keepDestination) setActiveAddTarget(null);
+    if (!keepDestination) {
+      setActiveAddTarget(null);
+      await sendBackground({ type: "JUSTSNAP_SET_ADD_TARGET" }).catch(() => undefined);
+    }
   };
 
   const finishDestination = async () => {
@@ -499,6 +635,10 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
 
   useEffect(() => {
     if (command?.type === "start_capture") void beginCapture(command.session);
+    if (command?.type === "restore_add_target") {
+      setActiveAddTarget(command.addTarget ?? null);
+      setInputMode("dock");
+    }
     if (command?.type === "show_error") setError(command.error);
   }, [command?.id]);
 
@@ -520,8 +660,8 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
       if (!captureMode && !activeAddTarget) return;
       event.preventDefault();
       event.stopPropagation();
-      if (activeAddTarget) void finishDestination();
-      else void activateDockMode();
+      if (captureMode) void activateDockMode();
+      else void finishDestination();
     };
     document.addEventListener("keydown", finishOnShortcut, true);
     return () => document.removeEventListener("keydown", finishOnShortcut, true);
@@ -538,10 +678,12 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
   ) => {
     const transfer = event.dataTransfer;
     void requireCaptureBlobs(captureIds);
-    const key = deliveryCaptureKey(captureIds);
-    const prepared = preparedDeliveryRef.current?.key === key
-      ? preparedDeliveryRef.current.blobs
-      : new Map(Object.entries(blobCacheRef.current));
+    const prepared = new Map(
+      Object.entries(blobCacheRef.current).map(([captureId, source]) => {
+        const cached = deliveryBlobCacheRef.current.get(captureId);
+        return [captureId, cached?.source === source ? cached.delivery : source] as const;
+      })
+    );
     const files = filesForDelivery(captureIds, captures, prepared);
 
     if (!files?.length) {
@@ -585,7 +727,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
     }
     addToBlobCache([[captureId, blob]]);
     if (!await copyFilesToClipboard([file])) {
-      setError("Clipboard access was blocked. Try copying again from the Dock.");
+      setError("Could not copy this image. Try copying again from the Dock.");
       return;
     }
     setNotice("Copied image to clipboard.");
@@ -688,6 +830,15 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
       await sendBackground({ type: "JUSTSNAP_CANCEL_CAPTURE_SESSION", sessionId: session.sessionId }).catch(() => undefined);
     }
     resetCaptureState();
+    await sendBackground({ type: "JUSTSNAP_SET_ADD_TARGET" }).catch(() => undefined);
+  };
+
+  const showDeletionUndo = (result: DeletionResult, message: string) => {
+    applyLibraryState(result.library);
+    if (result.deletionId && result.expiresAt && result.kind) {
+      setPendingDeletion({ deletionId: result.deletionId, expiresAt: result.expiresAt, kind: result.kind });
+      setNotice(message);
+    }
   };
 
   const removeGroup = async (groupId: string) => {
@@ -699,27 +850,32 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
     const captureIds = group.captureIds;
     setBlobCache((currentCache) => {
       const next = { ...currentCache };
-      for (const captureId of captureIds) delete next[captureId];
+      for (const captureId of captureIds) {
+        delete next[captureId];
+        deliveryBlobCacheRef.current.delete(captureId);
+      }
       return next;
     });
-    const result = await sendBackground<GroupDeletionResult>({ type: "JUSTSNAP_DELETE_GROUP", groupId });
-    applyLibraryState(result.library);
-    if (result.deletionId && result.expiresAt) {
-      setPendingGroupDeletion({ deletionId: result.deletionId, expiresAt: result.expiresAt });
-      setNotice("Folder deleted.");
-    }
+    const result = await sendBackground<DeletionResult>({ type: "JUSTSNAP_DELETE_GROUP", groupId });
+    showDeletionUndo(result, "Folder deleted.");
   };
 
-  const undoGroupDeletion = async () => {
-    const deletion = pendingGroupDeletion;
+  const undoDeletion = async () => {
+    const deletion = pendingDeletion;
     if (!deletion) return;
     const library = await sendBackground<LibraryState>({
-      type: "JUSTSNAP_UNDO_GROUP_DELETE",
+      type: "JUSTSNAP_UNDO_DELETE",
       deletionId: deletion.deletionId
     });
     applyLibraryState(library);
-    setPendingGroupDeletion(null);
-    setNotice("Folder restored.");
+    setPendingDeletion(null);
+    setNotice(
+      deletion.kind === "capture"
+        ? "Image restored."
+        : deletion.kind === "group"
+          ? "Folder restored."
+          : "Dock restored."
+    );
   };
 
   const removeCapture = async (captureId: string) => {
@@ -731,9 +887,11 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
     setBlobCache((currentCache) => {
       const next = { ...currentCache };
       delete next[captureId];
+      deliveryBlobCacheRef.current.delete(captureId);
       return next;
     });
-    await runLibraryMutation({ type: "delete_capture", captureId });
+    const result = await sendBackground<DeletionResult>({ type: "JUSTSNAP_DELETE_CAPTURE", captureId });
+    showDeletionUndo(result, "Image deleted.");
   };
 
   const createEmptyFolder = async () => {
@@ -745,7 +903,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
       createdAt: Date.now()
     });
     const group = library.groups.find((entry) => entry.id === groupId);
-    if (group) setActiveAddTarget({ kind: "group", id: group.id });
+    if (group) await startAddMode({ kind: "group", id: group.id });
   };
 
   const clearDock = async () => {
@@ -754,12 +912,13 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
       await sendBackground({ type: "JUSTSNAP_CANCEL_CAPTURE_SESSION", sessionId: session.sessionId }).catch(() => undefined);
     }
     resetCaptureState();
+    await sendBackground({ type: "JUSTSNAP_SET_ADD_TARGET" }).catch(() => undefined);
     setBlobCache({});
     blobCacheRef.current = {};
     blobLoadRef.current.clear();
-    await runLibraryMutation({ type: "clear_library" });
-    setPendingGroupDeletion(null);
-    setNotice("");
+    deliveryBlobCacheRef.current.clear();
+    const result = await sendBackground<DeletionResult>({ type: "JUSTSNAP_CLEAR_LIBRARY" });
+    showDeletionUndo(result, "Dock cleared.");
     setClearDockPending(false);
   };
 
@@ -931,7 +1090,11 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
       sourceCaptureId: capture.id,
       targetCaptureId: targetCapture.id
     });
-    setActiveAddTarget({ kind: "group", id: groupId });
+    const nextTarget = { kind: "group" as const, id: groupId };
+    setActiveAddTarget(nextTarget);
+    await sendBackground({ type: "JUSTSNAP_SET_ADD_TARGET", addTarget: nextTarget }).catch((targetError) =>
+      setError(errorText(targetError))
+    );
   };
 
   const orderedRailOrder = useMemo(
@@ -950,6 +1113,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
   );
   const railLayout = dockLayoutForCount(orderedRailOrder.length + RAIL_CONTROL_ENTRY_COUNT);
   const draggedRailItem = dragging ? dragToRailItem(dragging) : null;
+  const dockAddTarget = activeAddTarget ?? captureSession?.addTarget;
   const railStyle = {
     "--justsnap-rail-surface": `${railLayout.surfaceWidth}px`,
     "--justsnap-dock-base": `${railLayout.baseSize}px`,
@@ -976,20 +1140,32 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
     : [];
   const showDone = Boolean(activeAddTarget) || captureMode;
 
-  const updateSnipDockProximity = (event: React.PointerEvent) => {
-    if (!captureMode || !start) {
-      setSnipDockRetreated(false);
-      return;
-    }
-    const point = { x: event.clientX, y: event.clientY };
-    const dockRect = snipDockOriginRectRef.current;
-    if (!dockRect) return;
-    if (snipDockLatchedRef.current) return;
+  const notificationSurfaces = [
+    clearDockPending
+      ? { key: "clear-dock", sequence: clearDockState.sequence, kind: "clear-dock" as const }
+      : null,
+    error
+      ? { key: "error", sequence: errorState.sequence, kind: "error" as const }
+      : null,
+    !error && notice
+      ? { key: "notice", sequence: noticeState.sequence, kind: "notice" as const }
+      : null
+  ]
+    .filter((surface): surface is NonNullable<typeof surface> => Boolean(surface))
+    .sort((first, second) => second.sequence - first.sequence);
 
-    setSnipDockRetreated((isRetreated) => {
-      const dockDistance = distanceFromPointToRect(point, dockRect);
-      return shouldRetreatSurface(isRetreated, dockDistance);
+  const updateSnipSurfaceOverlap = (point: Point) => {
+    if (!captureMode || !start) return;
+    const nextAvoidance = snipAvoidanceForSelection(normalizeRect(start, point), {
+      dock: snipDockOriginRectRef.current,
+      toolbar: snipToolbarOriginRectRef.current
     });
+    if (
+      nextAvoidance.dock === snipAvoidanceRef.current.dock &&
+      nextAvoidance.toolbar === snipAvoidanceRef.current.toolbar
+    ) return;
+    snipAvoidanceRef.current = nextAvoidance;
+    setSnipAvoidance(nextAvoidance);
   };
 
   return (
@@ -999,7 +1175,9 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
         ref={dockRef}
         className={[
           railInteractionActive ? "justsnap-rail-expanded" : "",
-          captureMode && snipDockRetreated ? "justsnap-snip-surface-retreated justsnap-snip-dock-retreated" : ""
+          dockAddTarget ? "justsnap-rail-add-focused" : "",
+          captureMode && snipAvoidance.dock ? "justsnap-snip-surface-retreated justsnap-snip-dock-retreated" : "",
+          captureMode && captureFrameClean && snipAvoidance.dock ? "justsnap-capture-frame-clean-surface" : ""
         ].filter(Boolean).join(" ")}
         style={railStyle}
         draggedItem={draggedRailItem}
@@ -1007,8 +1185,10 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
         top={
           <button
             className="justsnap-rail-control"
-            aria-label="Create a new folder"
-            data-tooltip="New folder"
+            aria-label="Add Folder"
+            data-tooltip="Add Folder"
+            disabled={Boolean(dockAddTarget)}
+            onPointerEnter={() => setFlyoutDismissRevision((revision) => revision + 1)}
             onClick={() => void createEmptyFolder()}
           >
             <FolderPlus size={18} />
@@ -1017,9 +1197,10 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
         bottom={
           <button
             className="justsnap-rail-control justsnap-clear-dock-control"
-            aria-label="Clear dock"
-            data-tooltip="Clear dock"
-            disabled={!railOrder.length}
+            aria-label="Clear Dock"
+            data-tooltip="Clear Dock"
+            disabled={!railOrder.length || Boolean(dockAddTarget)}
+            onPointerEnter={() => setFlyoutDismissRevision((revision) => revision + 1)}
             onClick={() => setClearDockPending(true)}
           >
             <Trash2 size={18} />
@@ -1033,8 +1214,9 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
           blobCache={blobCache}
           dragging={dragging}
           recentlyAddedCaptureId={recentlyAddedCaptureId}
-          activeAddTarget={activeAddTarget ?? captureSession?.addTarget}
+          activeAddTarget={dockAddTarget}
           pendingAddCaptures={pendingAddCaptures}
+          flyoutDismissRevision={flyoutDismissRevision}
           layout={railLayout}
           onStartDrag={startItemDrag}
           onEndDrag={finishItemDrag}
@@ -1050,34 +1232,39 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
         />
       </DockFrame>
 
-      {clearDockPending && (
-        <div className="justsnap-dock-delete-confirm" role="alertdialog" aria-modal="true" aria-label="Clear dock">
-          <AlertTriangle className="justsnap-dock-delete-confirm-icon" size={17} aria-hidden="true" />
-          <span>
-            <strong>Clear everything from this dock?</strong>
-            <small>All images and folders will be permanently deleted from DockSnip.</small>
-          </span>
-          <div>
-            <button onClick={() => setClearDockPending(false)}>Cancel</button>
-            <button className="justsnap-danger-button" onClick={() => void clearDock()}>Clear all</button>
-          </div>
+      {notificationSurfaces.length > 0 && (
+        <div className="justsnap-notification-stack">
+          {notificationSurfaces.map((surface) => (
+            <div className="justsnap-notification-stack-item" key={surface.key}>
+              {surface.kind === "clear-dock" ? (
+                <div className="justsnap-dock-delete-confirm" role="alertdialog" aria-modal="true" aria-label="Clear Dock">
+                  <AlertTriangle className="justsnap-dock-delete-confirm-icon" size={17} aria-hidden="true" />
+                  <span>
+                    <strong>Clear everything from this dock?</strong>
+                    <small>All images and folders will be permanently deleted.</small>
+                  </span>
+                  <div>
+                    <button onClick={() => setClearDockPending(false)}>Cancel</button>
+                    <button className="justsnap-danger-button" onClick={() => void clearDock()}>Clear all</button>
+                  </div>
+                </div>
+              ) : surface.kind === "error" ? (
+                <ToolbarNotice tone="error" message={<FriendlyErrorMessage error={error} />} onDismiss={() => setError("")} />
+              ) : (
+                <ToolbarNotice
+                  tone="info"
+                  message={notice}
+                  actionLabel={pendingDeletion ? "Undo" : undefined}
+                  onAction={pendingDeletion ? () => void undoDeletion() : undefined}
+                  onDismiss={() => {
+                    setPendingDeletion(null);
+                    setNotice("");
+                  }}
+                />
+              )}
+            </div>
+          ))}
         </div>
-      )}
-
-      {error && (
-        <ToolbarNotice tone="error" message={friendlyErrorMessage(error)} onDismiss={() => setError("")} />
-      )}
-      {!error && notice && (
-        <ToolbarNotice
-          tone="info"
-          message={notice}
-          actionLabel={pendingGroupDeletion ? "Undo" : undefined}
-          onAction={pendingGroupDeletion ? () => void undoGroupDeletion() : undefined}
-          onDismiss={() => {
-            setPendingGroupDeletion(null);
-            setNotice("");
-          }}
-        />
       )}
 
       {pageImageAffordance && !captureMode && (
@@ -1107,9 +1294,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
 
       {!captureMode && (
         <div className="justsnap-capture-toolbar" onPointerDown={(event) => event.stopPropagation()}>
-          {toolbarDestinationCaptures.length > 0 && (
-            <ToolbarDestinationPreview captures={toolbarDestinationCaptures} />
-          )}
+          <ToolbarLogomark />
           <span className="justsnap-capture-toolbar-copy">
             <strong>{toolbarTitle}</strong>
             <small>{toolbarDescription}</small>
@@ -1123,9 +1308,14 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
             </button>
           </div>
           {showDone && (
-            <button className="justsnap-capture-done" title="Done (Enter)" onClick={() => void finishDestination()}>
-              <span>Done</span>
-              <CornerDownLeft size={13} />
+            <button className="justsnap-capture-done" title="Finish adding (Enter)" onClick={() => void finishDestination()}>
+              {toolbarDestinationCaptures.length > 0 && (
+                <ToolbarDestinationPreview captures={toolbarDestinationCaptures} />
+              )}
+              <span>Finish adding</span>
+              <kbd className="justsnap-shortcut-key" aria-hidden="true">
+                <CornerDownLeft size={12} />
+              </kbd>
             </button>
           )}
           <ToolbarActions shortcutModifier={shortcutModifier} onClose={closeRail} />
@@ -1137,15 +1327,21 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
           className={["justsnap-capture-layer", captureFrameClean ? "justsnap-capture-frame-clean" : ""].join(" ")}
           onPointerDown={beginSelection}
           onPointerMove={(event) => {
-            updateSnipDockProximity(event);
+            updateSnipSurfaceOverlap({ x: event.clientX, y: event.clientY });
             updateSelection(event);
           }}
           onPointerUp={finishSelection}
         >
-          <div className="justsnap-capture-toolbar" onPointerDown={(event) => event.stopPropagation()}>
-            {toolbarDestinationCaptures.length > 0 && (
-              <ToolbarDestinationPreview captures={toolbarDestinationCaptures} />
-            )}
+          <div
+            ref={captureToolbarRef}
+            className={[
+              "justsnap-capture-toolbar",
+              snipAvoidance.toolbar ? "justsnap-snip-surface-retreated justsnap-snip-toolbar-retreated" : "",
+              captureFrameClean && snipAvoidance.toolbar ? "justsnap-capture-frame-clean-surface" : ""
+            ].filter(Boolean).join(" ")}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <ToolbarLogomark />
             <span className="justsnap-capture-toolbar-copy">
               <strong>{toolbarTitle}</strong>
               <small>{toolbarDescription}</small>
@@ -1160,11 +1356,13 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
             </div>
             <button
               className="justsnap-capture-done"
-              title="Done (Enter)"
-              onClick={() => void (activeAddTarget ? finishDestination() : activateDockMode())}
+              title="Done snipping (Enter)"
+              onClick={() => void activateDockMode()}
             >
-              <span>Done</span>
-              <CornerDownLeft size={13} />
+              <span>Done snipping</span>
+              <kbd className="justsnap-shortcut-key" aria-hidden="true">
+                <CornerDownLeft size={12} />
+              </kbd>
             </button>
             <ToolbarActions shortcutModifier={shortcutModifier} onClose={closeRail} />
           </div>
@@ -1172,6 +1370,18 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
         </div>
       )}
     </>
+  );
+}
+
+function ToolbarLogomark() {
+  return (
+    <img
+      className="justsnap-toolbar-logomark"
+      src={chrome.runtime.getURL("logos/docksnip-logomark.svg")}
+      alt=""
+      aria-hidden="true"
+      draggable={false}
+    />
   );
 }
 
@@ -1204,7 +1414,7 @@ function ToolbarNotice({
   onDismiss
 }: {
   tone: "error" | "info";
-  message: string;
+  message: React.ReactNode;
   actionLabel?: string;
   onAction?: () => void;
   onDismiss: () => void;
@@ -1221,17 +1431,6 @@ function ToolbarNotice({
       <button className="justsnap-toolbar-notice-action" onClick={onAction ?? onDismiss}>{actionLabel ?? "OK"}</button>
     </section>
   );
-}
-
-function distanceFromPointToRect(point: Point, rect?: DOMRect): number {
-  if (!rect) return Number.POSITIVE_INFINITY;
-  const horizontalDistance = Math.max(rect.left - point.x, 0, point.x - rect.right);
-  const verticalDistance = Math.max(rect.top - point.y, 0, point.y - rect.bottom);
-  return Math.hypot(horizontalDistance, verticalDistance);
-}
-
-function shouldRetreatSurface(isRetreated: boolean, distance: number): boolean {
-  return isRetreated ? distance <= SNIP_RETURN_DISTANCE : distance <= SNIP_RETREAT_DISTANCE;
 }
 
 function dragToRailItem(drag: InternalDrag): RailOrderItem | undefined {
@@ -1296,20 +1495,6 @@ function pageImageTargetAtPoint(x: number, y: number): PageImageTarget | undefin
     if (target) return target;
   }
 
-  // CSS backgrounds are a fallback. Keeping the same stack order prevents an
-  // obscured feed image from winning over an open modal or lightbox.
-  for (const element of stack) {
-    let candidate: Element | null = element;
-    for (let depth = 0; candidate && depth < 3; depth += 1, candidate = candidate.parentElement) {
-      if (candidate === document.body || candidate === document.documentElement) break;
-      if (candidate instanceof HTMLElement && pointInsideElement({ x, y }, candidate)) {
-        const imageUrl = backgroundImageUrl(candidate);
-        const target = imageUrl ? pageImageTargetForElement(candidate, imageUrl) : undefined;
-        if (target && pointInsideRect({ x, y }, target.rect)) return target;
-      }
-      if (candidate === visualLayer) break;
-    }
-  }
   return undefined;
 }
 
@@ -1358,8 +1543,7 @@ function deepElementsFromPoint(x: number, y: number): Element[] {
 }
 
 function imageUrlForElement(element: HTMLElement): string | undefined {
-  if (element instanceof HTMLImageElement) return element.currentSrc || element.src || undefined;
-  return backgroundImageUrl(element);
+  return element instanceof HTMLImageElement ? element.currentSrc || element.src || undefined : undefined;
 }
 
 function visibleImageContentRect(image: HTMLImageElement, style: CSSStyleDeclaration): Rect | undefined {
@@ -1431,16 +1615,6 @@ function intersectRects(a: Rect | undefined, b: Rect): Rect | undefined {
   const bottom = Math.min(a.top + a.height, b.top + b.height);
   if (right <= left || bottom <= top) return undefined;
   return { left, top, width: right - left, height: bottom - top };
-}
-
-function backgroundImageUrl(element: HTMLElement): string | undefined {
-  const backgroundImage = window.getComputedStyle(element).backgroundImage;
-  const match = backgroundImage.match(/url\((['"]?)(.*?)\1\)/i);
-  return match?.[2] || undefined;
-}
-
-function pointInsideElement(point: Point, element: Element): boolean {
-  return pointInsideRect(point, elementRect(element));
 }
 
 function pointInsideRect(point: Point, rect: Rect): boolean {
@@ -1546,17 +1720,15 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function friendlyErrorMessage(error: string): string {
-  if (error.includes("WhatsApp did not accept")) {
-    return "Couldn't add these images to WhatsApp. Try again or use the attachment button.";
-  }
-  if (error.includes("Could not find an active message field")) {
-    return "Couldn't find where to add the image. Select a message field and try again.";
-  }
-  if (error.includes("ignored the image insert")) {
-    return "Couldn't add the image here. Try again or use the page's attachment button.";
-  }
-  return error;
+function FriendlyErrorMessage({ error }: { error: string }) {
+  if (!isInsertionFailure(error)) return friendlyErrorMessage(error);
+  return (
+    <>
+      Couldn't add the image here. Try copying the image
+      <Copy className="justsnap-inline-copy-icon" size={14} aria-label="Copy" role="img" />
+      from the Dock and pasting it into the page.
+    </>
+  );
 }
 
 function ToolbarDestinationPreview({ captures }: { captures: Capture[] }) {
