@@ -6,7 +6,12 @@ export type InternalDrag = { kind: "capture"; captureId: string } | { kind: "gro
 export type DragPayload = { files: File[] };
 export type RailDropIntent =
   | { scope: "rail"; action: "insert-before" | "insert-after"; target: RailOrderItem }
-  | { scope: "rail"; action: "create-folder"; target: { kind: "capture"; id: string } }
+  | {
+      scope: "rail";
+      action: "create-folder";
+      target: { kind: "capture"; id: string };
+      position?: "insert-before" | "insert-after";
+    }
   | { scope: "rail"; action: "add-to-folder"; target: { kind: "group"; id: string } }
   | { scope: "folder"; action: "insert-before" | "insert-after"; groupId: string; targetCaptureId: string }
   | { scope: "folder"; action: "add-to-folder"; groupId: string; targetCaptureId: string };

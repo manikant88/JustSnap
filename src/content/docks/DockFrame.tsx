@@ -87,6 +87,7 @@ export const DockFrame = forwardRef<HTMLElement, DockFrameProps>(
         {...props}
         className={["justsnap-rail", className].filter(Boolean).join(" ")}
         onDragOverCapture={(event) => {
+          if (isFolderFlyoutEvent(event)) return;
           const intent = edgeFallbackIntent(event.clientY);
           if (!intent) return;
           event.preventDefault();
@@ -94,6 +95,7 @@ export const DockFrame = forwardRef<HTMLElement, DockFrameProps>(
           event.dataTransfer.dropEffect = "copy";
         }}
         onDropCapture={(event) => {
+          if (isFolderFlyoutEvent(event)) return;
           const intent = edgeFallbackIntent(event.clientY);
           if (!intent) return;
           event.preventDefault();
@@ -162,6 +164,12 @@ export const DockFrame = forwardRef<HTMLElement, DockFrameProps>(
     );
   }
 );
+
+function isFolderFlyoutEvent(event: React.DragEvent): boolean {
+  return event.nativeEvent.composedPath().some(
+    (target) => target instanceof HTMLElement && target.classList.contains("justsnap-group-flyout")
+  );
+}
 
 function DockSeparator() {
   return (

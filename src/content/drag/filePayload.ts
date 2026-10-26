@@ -60,10 +60,60 @@ function extensionForImageType(type: string): string {
   return "png";
 }
 
-export function dragPreviewElement(target: EventTarget, kind: "capture" | "group"): Element | undefined {
-  if (!(target instanceof Element)) return undefined;
-  if (kind === "group") {
-    return target.closest(".justsnap-dock-folder-button") ?? target;
-  }
-  return target.querySelector("img") ?? target;
+export type NativeDragPreview = {
+  element: HTMLElement;
+  dispose: () => void;
+};
+
+export function createCompactDragPreview(
+  target: EventTarget,
+  kind: "capture" | "group",
+  size = 56
+): NativeDragPreview | undefined {
+  if (!(target instanceof HTMLElement)) return undefined;
+  const source = kind === "group"
+    ? target.closest<HTMLElement>(".justsnap-dock-folder-button") ?? target
+    : target.closest<HTMLElement>(".justsnap-dock-image-button") ?? target;
+  const preview = source.cloneNode(true) as HTMLElement;
+  preview.removeAttribute("id");
+  preview.setAttribute("aria-hidden", "true");
+  preview.setAttribute("draggable", "false");
+  preview.dataset.docksnipNativeDragPreview = kind;
+  Object.assign(preview.style, {
+    position: "fixed",
+    left: "-10000px",
+    top: "0",
+    width: `${size}px`,
+    height: `${size}px`,
+    minWidth: `${size}px`,
+    minHeight: `${size}px`,
+    maxWidth: `${size}px`,
+    maxHeight: `${size}px`,
+    margin: "0",
+    opacity: "1",
+    pointerEvents: "none",
+    transform: "none",
+    translate: "0 0",
+    scale: "1",
+    rotate: "0deg",
+    transition: "none",
+    animation: "none",
+    overflow: "hidden"
+  });
+  preview.querySelectorAll<HTMLElement>("*").forEach((element) => {
+    element.style.transition = "none";
+    element.style.transform = "none";
+  });
+  preview.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
+    image.style.width = "100%";
+    image.style.height = "100%";
+    image.style.objectFit = "cover";
+  });
+  const root = target.getRootNode();
+  if (root instanceof ShadowRoot) root.append(preview);
+  else document.body.append(preview);
+  return {
+    element: preview,
+    dispose: () => preview.remove()
+  };
 }

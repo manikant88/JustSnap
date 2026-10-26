@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Copy, Folder, Plus, Trash2 } from "lucide-react";
+import { nextFolderColorSlot } from "../../../shared/folderColor";
 import type { Capture, CaptureAddTarget, CaptureGroup, RailOrderItem } from "../../../shared/types";
 import {
   dockCapturePreviewFrame,
@@ -16,11 +17,20 @@ import type { DockLayout } from "../dockLayout";
 import type { InternalDrag, RailDropIntent } from "../types";
 import { verticalDropZoneForElement } from "./dndIntent";
 import { deliveryCaptureKey } from "../drag/deliveryPreparation";
-import { folderToneForId, folderToneForSlot } from "../folderAppearance";
+import { folderToneForSlot } from "../folderAppearance";
 
 type RailEntry =
   | { kind: "group"; group: CaptureGroup; captures: Capture[] }
   | { kind: "capture"; capture: Capture };
+
+type DragFolderPreview =
+  | { kind: "group"; groupId: string; draggedCaptureId: string }
+  | { kind: "capture"; targetCaptureId: string; draggedCaptureId: string };
+
+const FOLDER_PREVIEW_SLOW_DWELL_MS = 220;
+const FOLDER_PREVIEW_MEDIUM_DWELL_MS = 300;
+const FOLDER_PREVIEW_FAST_DWELL_MS = 420;
+const FOLDER_PREVIEW_EXIT_GRACE_MS = 180;
 
 export function LibraryView(props: {
   captures: Capture[];
@@ -51,13 +61,28 @@ export function LibraryView(props: {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [dropIntent, setDropIntent] = useState<RailDropIntent | null>(null);
+  const dropIntentRef = useRef<RailDropIntent | null>(null);
+  const [hoverLockedAfterDrag, setHoverLockedAfterDrag] = useState(false);
+  const [dragFolderPreview, setDragFolderPreview] = useState<DragFolderPreview | null>(null);
+  const dragFolderPreviewRef = useRef<DragFolderPreview | null>(null);
+  const dragFolderPreviewTimerRef = useRef<number | null>(null);
+  const dragFolderPreviewCandidateRef = useRef<string | null>(null);
+  const dragFolderPreviewCandidateDelayRef = useRef<number | null>(null);
+  const dragFolderPreviewExitTimerRef = useRef<number | null>(null);
+  const dragFolderPreviewAnchorRef = useRef<{ x: number; y: number } | null>(null);
+  const dragMotionRef = useRef({ x: 0, y: 0, at: 0, speed: 0 });
   const onInteractionChange = props.onInteractionChange;
   const interactive = !props.presentationOnly;
-  const focusedIndex = interactive ? hoveredIndex : null;
+  const pointerHoverEnabled = interactive && !props.dragging && !hoverLockedAfterDrag;
+  const focusedIndex = pointerHoverEnabled ? hoveredIndex : null;
+  const setItemHoveredIndex = (index: number | null) => {
+    if (pointerHoverEnabled) setHoveredIndex(index);
+  };
   const captureById = useMemo(
     () => new Map(props.captures.map((capture) => [capture.id, capture])),
     [props.captures]
   );
+  const pendingFolderColorSlot = nextFolderColorSlot(props.groups);
   const visibleGroups = useMemo(
     () =>
       props.groups
@@ -81,10 +106,16 @@ export function LibraryView(props: {
           if (item.kind === "group") {
             const group = visibleGroupById.get(item.id);
             if (!group) return undefined;
-            const captures =
+            let captures =
               props.activeAddTarget?.kind === "group" && props.activeAddTarget.id === item.id
                 ? [...group.captures, ...props.pendingAddCaptures]
                 : group.captures;
+            if (dragFolderPreview?.kind === "group" && dragFolderPreview.groupId === item.id) {
+              const draggedCapture = captureById.get(dragFolderPreview.draggedCaptureId);
+              if (draggedCapture && !captures.some((capture) => capture.id === draggedCapture.id)) {
+                captures = [...captures, draggedCapture];
+              }
+            }
             return { kind: "group" as const, group: group.group, captures } satisfies RailEntry;
           }
           const capture = captureById.get(item.id);
@@ -95,6 +126,7 @@ export function LibraryView(props: {
     },
     [
       captureById,
+      dragFolderPreview,
       props.activeAddTarget,
       props.pendingAddCaptures,
       props.railOrder,
@@ -109,7 +141,150 @@ export function LibraryView(props: {
         (entry.kind === "group" ? entry.group.id : entry.capture.id) === props.activeAddTarget.id
       )
     : -1;
-  const activeGroupIndex = activeGroupId
+  const draggedCaptureId = props.dragging?.kind === "capture" ? props.dragging.captureId : null;
+  const draggedCaptureSourceGroupId = draggedCaptureId
+    ? visibleGroups.find((entry) => entry.group.captureIds.includes(draggedCaptureId))?.group.id ?? null
+    : null;
+  const updateDropIntent = (intent: RailDropIntent | null) => {
+    dropIntentRef.current = intent;
+    setDropIntent(intent);
+  };
+  const clearDragFolderPreviewTimer = () => {
+    if (dragFolderPreviewTimerRef.current !== null) {
+      window.clearTimeout(dragFolderPreviewTimerRef.current);
+      dragFolderPreviewTimerRef.current = null;
+    }
+    dragFolderPreviewCandidateRef.current = null;
+    dragFolderPreviewCandidateDelayRef.current = null;
+  };
+  const clearDragFolderPreviewExitTimer = () => {
+    if (dragFolderPreviewExitTimerRef.current === null) return;
+    window.clearTimeout(dragFolderPreviewExitTimerRef.current);
+    dragFolderPreviewExitTimerRef.current = null;
+  };
+  const clearDragFolderPreview = () => {
+    clearDragFolderPreviewTimer();
+    clearDragFolderPreviewExitTimer();
+    const current = dragFolderPreviewRef.current;
+    dragFolderPreviewRef.current = null;
+    dragFolderPreviewAnchorRef.current = null;
+    setDragFolderPreview(null);
+    if (current?.kind === "group" && current.groupId !== draggedCaptureSourceGroupId) {
+      setActiveGroupId((active) => active === current.groupId ? null : active);
+    }
+  };
+  const scheduleDragFolderPreview = (intent: RailDropIntent) => {
+    if (!draggedCaptureId || intent.scope !== "rail") return;
+    const preview: DragFolderPreview | null = intent.action === "create-folder"
+      ? { kind: "capture", targetCaptureId: intent.target.id, draggedCaptureId }
+      : intent.action === "add-to-folder"
+        ? { kind: "group", groupId: intent.target.id, draggedCaptureId }
+        : null;
+    if (!preview) return;
+    const key = preview.kind === "group" ? `group:${preview.groupId}` : `capture:${preview.targetCaptureId}`;
+    const current = dragFolderPreviewRef.current;
+    const currentKey = current
+      ? current.kind === "group" ? `group:${current.groupId}` : `capture:${current.targetCaptureId}`
+      : null;
+    if (currentKey === key) return;
+
+    const dwellMs = folderPreviewDwellMsForSpeed(dragMotionRef.current.speed);
+    if (dragFolderPreviewCandidateRef.current === key) {
+      const scheduledDelay = dragFolderPreviewCandidateDelayRef.current ?? dwellMs;
+      if (dwellMs >= scheduledDelay) return;
+      clearDragFolderPreviewTimer();
+    }
+
+    clearDragFolderPreview();
+    dragFolderPreviewCandidateRef.current = key;
+    dragFolderPreviewCandidateDelayRef.current = dwellMs;
+    dragFolderPreviewTimerRef.current = window.setTimeout(() => {
+      dragFolderPreviewTimerRef.current = null;
+      dragFolderPreviewCandidateRef.current = null;
+      dragFolderPreviewCandidateDelayRef.current = null;
+      dragFolderPreviewRef.current = preview;
+      dragFolderPreviewAnchorRef.current = {
+        x: dragMotionRef.current.x,
+        y: dragMotionRef.current.y
+      };
+      setDragFolderPreview(preview);
+      setActiveGroupId(preview.kind === "group" ? preview.groupId : null);
+    }, dwellMs);
+  };
+  const scheduleDragFolderPreviewExit = () => {
+    if (dragFolderPreviewExitTimerRef.current !== null) return;
+    dragFolderPreviewExitTimerRef.current = window.setTimeout(() => {
+      dragFolderPreviewExitTimerRef.current = null;
+      updateDropIntent(null);
+      clearDragFolderPreview();
+    }, FOLDER_PREVIEW_EXIT_GRACE_MS);
+  };
+  const setDropIntentWithPreview = (intent: RailDropIntent | null) => {
+    const current = dragFolderPreviewRef.current;
+    if (current) {
+      if (intent?.scope === "rail" && (intent.action === "insert-before" || intent.action === "insert-after")) {
+        const anchor = dragFolderPreviewAnchorRef.current;
+        const targetMatchesPreview = current.kind === "group"
+          ? intent.target.kind === "group" && intent.target.id === current.groupId
+          : intent.target.kind === "capture" && intent.target.id === current.targetCaptureId;
+        const pointerTravel = anchor
+          ? Math.hypot(dragMotionRef.current.x - anchor.x, dragMotionRef.current.y - anchor.y)
+          : Number.POSITIVE_INFINITY;
+        const movingTowardFlyout = Boolean(anchor && dragMotionRef.current.x < anchor.x - 4);
+        if (targetMatchesPreview && (pointerTravel <= 12 || movingTowardFlyout)) {
+          clearDragFolderPreviewExitTimer();
+          return;
+        }
+        clearDragFolderPreview();
+        setActiveGroupId(null);
+        updateDropIntent(intent);
+        return;
+      }
+      if (intent?.scope === "folder") {
+        clearDragFolderPreviewExitTimer();
+        updateDropIntent(intent);
+        return;
+      }
+      if (intent?.scope === "rail" && (intent.action === "create-folder" || intent.action === "add-to-folder")) {
+        const matchesCurrent = current.kind === "capture"
+          ? intent.action === "create-folder" && intent.target.id === current.targetCaptureId
+          : intent.action === "add-to-folder" && intent.target.id === current.groupId;
+        if (matchesCurrent) {
+          clearDragFolderPreviewExitTimer();
+          updateDropIntent(intent);
+          return;
+        }
+        updateDropIntent(intent);
+        scheduleDragFolderPreview(intent);
+        return;
+      }
+      scheduleDragFolderPreviewExit();
+      return;
+    }
+
+    updateDropIntent(intent);
+    if (intent?.scope === "rail" && (intent.action === "insert-before" || intent.action === "insert-after")) {
+      clearDragFolderPreview();
+      setActiveGroupId(null);
+      return;
+    }
+    if (intent?.scope === "rail" && (intent.action === "create-folder" || intent.action === "add-to-folder")) {
+      scheduleDragFolderPreview(intent);
+      return;
+    }
+    clearDragFolderPreview();
+  };
+  const keepSourceGroupOpenDuringDrag = Boolean(
+    activeGroupId && draggedCaptureSourceGroupId === activeGroupId
+  );
+  const keepPreviewGroupOpenDuringDrag = Boolean(
+    activeGroupId &&
+    dragFolderPreview?.kind === "group" &&
+    dragFolderPreview.groupId === activeGroupId
+  );
+  const activeGroupIndex = (
+    pointerHoverEnabled || keepSourceGroupOpenDuringDrag || keepPreviewGroupOpenDuringDrag
+  ) && activeGroupId
     ? entries.findIndex((entry) => entry.kind === "group" && entry.group.id === activeGroupId)
     : -1;
   const islandFocusIndex = activeGroupIndex >= 0
@@ -130,7 +305,7 @@ export function LibraryView(props: {
     dataAttribute: "data-docksnip-entry-index",
     focusedIndex: hoveredIndex,
     setFocusedIndex: setHoveredIndex,
-    enabled: interactive && !props.dragging && activeGroupId === null && !props.activeAddTarget
+    enabled: pointerHoverEnabled && activeGroupId === null && !props.activeAddTarget
   });
   useDynamicIslandShape({
     containerRef: libraryRef,
@@ -139,6 +314,37 @@ export function LibraryView(props: {
     focusedEntryKey: islandFocusKey,
     enabled: interactive
   });
+
+  useEffect(() => {
+    if (props.dragging) {
+      setHoverLockedAfterDrag(true);
+      setHoveredIndex(null);
+      const activeDragCaptureId = props.dragging.kind === "capture" ? props.dragging.captureId : null;
+      const dragStartedInsideActiveGroup = activeDragCaptureId !== null && visibleGroups.some(
+        (entry) => entry.group.id === activeGroupId && entry.group.captureIds.includes(activeDragCaptureId)
+      );
+      const dragOpenedPreviewGroup = dragFolderPreviewRef.current?.kind === "group" &&
+        dragFolderPreviewRef.current.groupId === activeGroupId;
+      if (!dragStartedInsideActiveGroup && !dragOpenedPreviewGroup) setActiveGroupId(null);
+      return;
+    }
+    if (!hoverLockedAfterDrag) return;
+    const unlockHover = (event: PointerEvent) => {
+      setHoverLockedAfterDrag(false);
+      const library = libraryRef.current;
+      if (!library) return;
+      const entry = Array.from(library.querySelectorAll<HTMLElement>("[data-docksnip-entry-index]"))
+        .find((element) => {
+          const rect = element.getBoundingClientRect();
+          return event.clientX >= rect.left && event.clientX <= rect.right &&
+            event.clientY >= rect.top && event.clientY <= rect.bottom;
+        });
+      const index = Number.parseInt(entry?.dataset.docksnipEntryIndex ?? "", 10);
+      setHoveredIndex(Number.isInteger(index) ? index : null);
+    };
+    document.addEventListener("pointermove", unlockHover, { capture: true, once: true });
+    return () => document.removeEventListener("pointermove", unlockHover, true);
+  }, [activeGroupId, hoverLockedAfterDrag, props.dragging, visibleGroups]);
 
   useEffect(() => {
     if (!interactive) return;
@@ -209,8 +415,138 @@ export function LibraryView(props: {
   }, [activeGroupId, interactive, props.activeAddTarget, props.dragging]);
 
   useEffect(() => {
-    if (!props.dragging) setDropIntent(null);
+    if (!props.dragging) {
+      updateDropIntent(null);
+      dragMotionRef.current = { x: 0, y: 0, at: 0, speed: 0 };
+    }
   }, [props.dragging]);
+
+  useEffect(() => {
+    if (props.dragging) return;
+    clearDragFolderPreview();
+  }, [props.dragging]);
+
+  useEffect(() => {
+    if (!props.dragging) return;
+    const cancelPreviewOutsideDock = (event: DragEvent) => {
+      updateDragMotion(dragMotionRef.current, event.clientX, event.clientY, event.timeStamp);
+      const library = libraryRef.current;
+      if (!library) return;
+      const railSlot = Array.from(
+        library.querySelectorAll<HTMLElement>("[data-docksnip-rail-kind][data-docksnip-rail-id]")
+      ).find((slot) => {
+        const hitTarget = slot.querySelector<HTMLElement>(
+          ".justsnap-dock-image-button, .justsnap-dock-folder-button"
+        );
+        return Boolean(hitTarget && pointWithinRect(event, hitTarget.getBoundingClientRect(), 4));
+      });
+      if (railSlot) {
+        const kind = railSlot.dataset.docksnipRailKind;
+        const id = railSlot.dataset.docksnipRailId;
+        const intent = id
+          ? kind === "capture"
+            ? railIntentForCapturePoint(railSlot, event.clientY, id, props.dragging)
+            : kind === "group"
+              ? railIntentForGroupPoint(railSlot, event.clientY, id, props.dragging)
+              : null
+          : null;
+        if (intent) {
+          setDropIntentWithPreview(intent);
+          event.preventDefault();
+          if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+          return;
+        }
+      }
+      if (!dragFolderPreviewRef.current && dragFolderPreviewCandidateRef.current === null) return;
+      const preview = dragFolderPreviewRef.current;
+      if (preview) {
+        let previewIntent: RailDropIntent | null = null;
+        if (preview.kind === "group") {
+          const groupEntry = entries.find(
+            (entry) => entry.kind === "group" && entry.group.id === preview.groupId
+          );
+          const flyout = library.querySelector<HTMLElement>(
+            `[data-justsnap-group-id="${CSS.escape(preview.groupId)}"] .justsnap-group-flyout`
+          );
+          if (groupEntry?.kind === "group" && flyout && pointWithinRect(event, flyout.getBoundingClientRect(), 16)) {
+            previewIntent = folderIntentForPointer(
+              flyout,
+              event.clientY,
+              preview.groupId,
+              groupEntry.captures,
+              props.dragging
+            );
+          }
+        } else {
+          const flyout = library.querySelector<HTMLElement>(
+            `[data-docksnip-rail-id="${CSS.escape(preview.targetCaptureId)}"] .justsnap-add-target-flyout`
+          );
+          if (flyout && pointWithinRect(event, flyout.getBoundingClientRect(), 16)) {
+            previewIntent = newFolderIntentForPointer(
+              flyout,
+              event.clientY,
+              preview.targetCaptureId,
+              props.dragging
+            );
+          }
+        }
+        if (previewIntent) {
+          clearDragFolderPreviewExitTimer();
+          updateDropIntent(previewIntent);
+          event.preventDefault();
+          if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+          return;
+        }
+      }
+      const regions = [
+        library.getBoundingClientRect(),
+        ...Array.from(library.querySelectorAll<HTMLElement>(".justsnap-group-flyout"))
+          .map((element) => element.getBoundingClientRect())
+      ];
+      const remainsInDock = regions.some((rect) =>
+        event.clientX >= rect.left - 16 &&
+        event.clientX <= rect.right + 16 &&
+        event.clientY >= rect.top - 16 &&
+        event.clientY <= rect.bottom + 16
+      );
+      if (remainsInDock) {
+        clearDragFolderPreviewExitTimer();
+        return;
+      }
+      scheduleDragFolderPreviewExit();
+    };
+    document.addEventListener("dragover", cancelPreviewOutsideDock, true);
+    return () => document.removeEventListener("dragover", cancelPreviewOutsideDock, true);
+  }, [entries, props.dragging]);
+
+  useEffect(() => {
+    if (!props.dragging) return;
+    const commitFlyoutDrop = (event: DragEvent) => {
+      const intent = dropIntentRef.current;
+      const isFlyoutIntent = intent?.scope === "folder" ||
+        (intent?.scope === "rail" && intent.action === "create-folder" && Boolean(intent.position));
+      if (!intent || !isFlyoutIntent) return;
+      const library = libraryRef.current;
+      if (!library) return;
+      const insideFlyout = Array.from(
+        library.querySelectorAll<HTMLElement>(".justsnap-group-flyout")
+      ).some((flyout) => pointWithinRect(event, flyout.getBoundingClientRect(), 16));
+      if (!insideFlyout) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      updateDropIntent(null);
+      clearDragFolderPreview();
+      props.onDropIntent(intent);
+    };
+    document.addEventListener("drop", commitFlyoutDrop, true);
+    return () => document.removeEventListener("drop", commitFlyoutDrop, true);
+  }, [props.dragging, props.onDropIntent]);
+
+  useEffect(() => () => {
+    clearDragFolderPreviewTimer();
+    clearDragFolderPreviewExitTimer();
+  }, []);
 
   useEffect(() => {
     onInteractionChange(
@@ -247,7 +583,7 @@ export function LibraryView(props: {
           "--justsnap-rail-surface": `${layout.surfaceWidth}px`
         } as React.CSSProperties
       }
-      onMouseLeave={() => setDropIntent(null)}
+      onMouseLeave={() => setDropIntentWithPreview(null)}
     >
       <svg
         ref={islandShapeRef}
@@ -267,7 +603,7 @@ export function LibraryView(props: {
             group={entry.group}
             captures={entry.captures}
             blobCache={props.blobCache}
-            deliveryReady={props.preparedDeliveryKey === deliveryCaptureKey(entry.captures.map((capture) => capture.id))}
+            deliveryReady={props.preparedDeliveryKey === deliveryCaptureKey(entry.group.captureIds)}
             focusedIndex={focusedIndex}
             addModeActive={Boolean(props.activeAddTarget)}
             active={interactive && (
@@ -282,7 +618,7 @@ export function LibraryView(props: {
             presentationOnly={props.presentationOnly}
             baseSize={layout.baseSize}
             baseGap={layout.gap}
-            setHoveredIndex={setHoveredIndex}
+            setHoveredIndex={setItemHoveredIndex}
             onActivate={() => setActiveGroupId(entry.group.id)}
             onDragStart={(event) =>
               props.onStartDrag(event, { kind: "group", groupId: entry.group.id }, entry.captures.map((capture) => capture.id))
@@ -291,7 +627,7 @@ export function LibraryView(props: {
             dragging={props.dragging}
             dropIntent={dropIntent}
             onDropIntent={props.onDropIntent}
-            setDropIntent={setDropIntent}
+            setDropIntent={setDropIntentWithPreview}
             onRemove={() => {
               setHoveredIndex(null);
               setActiveGroupId(null);
@@ -303,6 +639,11 @@ export function LibraryView(props: {
             }
             onRemoveCapture={props.onRemoveCapture}
             onCopyCapture={props.onCopyCapture}
+            provisionalCaptureId={
+              dragFolderPreview?.kind === "group" && dragFolderPreview.groupId === entry.group.id
+                ? dragFolderPreview.draggedCaptureId
+                : null
+            }
           />
         ) : (
           <CaptureDockItem
@@ -314,6 +655,13 @@ export function LibraryView(props: {
                 ? [entry.capture, ...props.pendingAddCaptures]
                 : undefined
             }
+            dragFolderPreviewCaptures={
+              dragFolderPreview?.kind === "capture" &&
+              dragFolderPreview.targetCaptureId === entry.capture.id &&
+              captureById.has(dragFolderPreview.draggedCaptureId)
+                ? [entry.capture, captureById.get(dragFolderPreview.draggedCaptureId)!]
+                : undefined
+            }
             deliveryReady={props.preparedDeliveryKey === deliveryCaptureKey([entry.capture.id])}
             blob={props.blobCache[entry.capture.id]}
             blobCache={props.blobCache}
@@ -321,6 +669,7 @@ export function LibraryView(props: {
             recentlyAddedCaptureId={props.recentlyAddedCaptureId}
             focusedIndex={focusedIndex}
             addModeActive={Boolean(props.activeAddTarget)}
+            pendingFolderColorSlot={pendingFolderColorSlot}
             muted={Boolean(
               props.activeAddTarget &&
               !(props.activeAddTarget.kind === "capture" && props.activeAddTarget.id === entry.capture.id)
@@ -328,7 +677,7 @@ export function LibraryView(props: {
             presentationOnly={props.presentationOnly}
             baseSize={layout.baseSize}
             baseGap={layout.gap}
-            setHoveredIndex={setHoveredIndex}
+            setHoveredIndex={setItemHoveredIndex}
             onHover={() => setActiveGroupId(null)}
             onDragStart={(event) =>
               props.onStartDrag(event, { kind: "capture", captureId: entry.capture.id }, [entry.capture.id])
@@ -337,7 +686,7 @@ export function LibraryView(props: {
             dragging={props.dragging}
             dropIntent={dropIntent}
             onDropIntent={props.onDropIntent}
-            setDropIntent={setDropIntent}
+            setDropIntent={setDropIntentWithPreview}
             onRemove={() => {
               setHoveredIndex(null);
               props.onRemoveCapture(entry.capture.id);
@@ -355,6 +704,7 @@ function CaptureDockItem(props: {
   index: number;
   capture: Capture;
   addFlyoutCaptures?: Capture[];
+  dragFolderPreviewCaptures?: Capture[];
   deliveryReady: boolean;
   blob?: Blob;
   blobCache: Record<string, Blob>;
@@ -362,6 +712,7 @@ function CaptureDockItem(props: {
   recentlyAddedCaptureId: string | null;
   focusedIndex: number | null;
   addModeActive: boolean;
+  pendingFolderColorSlot: number;
   muted?: boolean;
   baseSize: number;
   baseGap: number;
@@ -378,7 +729,9 @@ function CaptureDockItem(props: {
   onAdd: () => void;
   presentationOnly?: boolean;
 }) {
-  const activeAdd = Boolean(props.addFlyoutCaptures);
+  const folderFlyoutCaptures = props.addFlyoutCaptures ?? props.dragFolderPreviewCaptures;
+  const activeAdd = Boolean(folderFlyoutCaptures);
+  const dragPreviewActive = Boolean(props.dragFolderPreviewCaptures);
   const influence = activeAdd || props.muted ? 0 : dockInfluence(props.index, props.focusedIndex);
   const isFocused = !activeAdd && !props.muted && props.focusedIndex === props.index;
   const thumbnailSize = dockCaptureThumbnailSize(props.baseSize, influence);
@@ -430,7 +783,13 @@ function CaptureDockItem(props: {
       }}
       onDrop={(event) => {
         if (props.presentationOnly || props.muted) return;
-        const intent = railIntentForCapture(event, props.capture.id, props.dragging);
+        const previewIntent = props.dropIntent?.scope === "rail" &&
+          props.dropIntent.action === "create-folder" &&
+          props.dropIntent.target.kind === "capture" &&
+          props.dropIntent.target.id === props.capture.id
+          ? props.dropIntent
+          : null;
+        const intent = previewIntent ?? railIntentForCapture(event, props.capture.id, props.dragging);
         if (!intent) return;
         event.preventDefault();
         event.stopPropagation();
@@ -441,14 +800,14 @@ function CaptureDockItem(props: {
       {activeAdd ? (
         <button
           className="justsnap-dock-folder-button justsnap-dock-add-target-folder"
-          style={folderButtonStyle(`pending:${props.capture.id}`, frame.width, frame.height)}
+          style={folderButtonStyle(props.pendingFolderColorSlot, frame.width, frame.height)}
           aria-label="New folder"
           draggable={false}
           onFocus={() => props.setHoveredIndex(props.index)}
           onBlur={() => props.setHoveredIndex(null)}
         >
           <span className="justsnap-folder-grid" aria-hidden="true">
-            {props.addFlyoutCaptures?.slice(0, 4).map((capture) => (
+            {folderFlyoutCaptures?.slice(0, 4).map((capture) => (
               <img key={capture.id} src={capture.thumbnailDataUrl} alt="" />
             ))}
           </span>
@@ -521,12 +880,16 @@ function CaptureDockItem(props: {
           </button>
         </>
       )}
-      {props.addFlyoutCaptures && (
+      {folderFlyoutCaptures && (
         <AddTargetFlyout
-          captures={props.addFlyoutCaptures}
+          captures={folderFlyoutCaptures}
           blobCache={props.blobCache}
           activeCaptureId={props.capture.id}
           recentlyAddedCaptureId={props.recentlyAddedCaptureId}
+          dragging={dragPreviewActive ? props.dragging : null}
+          dropIntent={props.dropIntent}
+          setDropIntent={props.setDropIntent}
+          onDropIntent={props.onDropIntent}
         />
       )}
     </div>
@@ -538,6 +901,10 @@ function AddTargetFlyout(props: {
   blobCache: Record<string, Blob>;
   activeCaptureId: string;
   recentlyAddedCaptureId: string | null;
+  dragging: InternalDrag | null;
+  dropIntent: RailDropIntent | null;
+  setDropIntent: (intent: RailDropIntent | null) => void;
+  onDropIntent: (intent: RailDropIntent) => void;
 }) {
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const layout = dockLayoutForCount(props.captures.length, 420);
@@ -548,13 +915,20 @@ function AddTargetFlyout(props: {
     dataAttribute: "data-docksnip-add-target-index",
     focusedIndex,
     setFocusedIndex,
-    enabled: true
+    enabled: !props.dragging
   });
+
+  const previewingFolderCreation = props.dragging?.kind === "capture";
+  const previewDraggedCaptureId = props.dragging?.kind === "capture" ? props.dragging.captureId : null;
 
   return (
     <div
       ref={flyoutRef}
-      className="justsnap-group-flyout justsnap-add-target-flyout"
+      className={[
+        "justsnap-group-flyout",
+        "justsnap-add-target-flyout",
+        previewingFolderCreation ? "justsnap-group-flyout-dragging" : ""
+      ].join(" ")}
       aria-label="New folder captures"
       style={
         {
@@ -562,6 +936,34 @@ function AddTargetFlyout(props: {
           "--justsnap-rail-surface": `${layout.surfaceWidth}px`
         } as React.CSSProperties
       }
+      onDragOver={(event) => {
+        if (!previewingFolderCreation) return;
+        const intent = newFolderIntentForPointer(
+          event.currentTarget,
+          event.clientY,
+          props.activeCaptureId,
+          props.dragging
+        );
+        props.setDropIntent(intent);
+        if (!intent) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = "copy";
+      }}
+      onDrop={(event) => {
+        if (!previewingFolderCreation) return;
+        const intent = newFolderIntentForPointer(
+          event.currentTarget,
+          event.clientY,
+          props.activeCaptureId,
+          props.dragging
+        );
+        if (!intent) return;
+        event.preventDefault();
+        event.stopPropagation();
+        props.setDropIntent(null);
+        props.onDropIntent(intent);
+      }}
     >
       {props.captures.map((capture, captureIndex) => (
         <AddTargetFlyoutItem
@@ -574,6 +976,9 @@ function AddTargetFlyout(props: {
           baseGap={layout.gap}
           isTarget={capture.id === props.activeCaptureId}
           isNew={capture.id === props.recentlyAddedCaptureId}
+          isProvisional={previewingFolderCreation && capture.id === previewDraggedCaptureId}
+          dropIntent={props.dropIntent}
+          targetCaptureId={props.activeCaptureId}
           setFocusedIndex={setFocusedIndex}
         />
       ))}
@@ -590,6 +995,9 @@ function AddTargetFlyoutItem(props: {
   baseGap: number;
   isTarget: boolean;
   isNew: boolean;
+  isProvisional: boolean;
+  dropIntent: RailDropIntent | null;
+  targetCaptureId: string;
   setFocusedIndex: (index: number | null) => void;
 }) {
   const influence = dockInfluence(props.index, props.focusedIndex);
@@ -608,11 +1016,14 @@ function AddTargetFlyoutItem(props: {
     <div
       ref={slotRef}
       data-docksnip-add-target-index={props.index}
+      data-docksnip-preview-id={props.capture.id}
       className={[
         "justsnap-dock-slot",
         "justsnap-group-flyout-slot",
         isFocused ? "justsnap-dock-slot-hovered" : "",
-        props.isTarget ? "justsnap-add-target-origin" : ""
+        props.isTarget ? "justsnap-add-target-origin" : "",
+        props.isProvisional ? "justsnap-folder-preview-provisional" : "",
+        newFolderIntentClass(props.dropIntent, props.targetCaptureId, props.capture.id)
       ].join(" ")}
       style={
         {
@@ -663,6 +1074,7 @@ function GroupDockItem(props: {
   onStartCaptureDrag: (event: React.DragEvent, capture: Capture) => void;
   onRemoveCapture: (captureId: string) => void;
   onCopyCapture: (captureId: string) => void;
+  provisionalCaptureId: string | null;
   presentationOnly?: boolean;
 }) {
   const influence = props.active ? 1 : props.muted ? 0 : dockInfluence(props.index, props.focusedIndex);
@@ -670,9 +1082,15 @@ function GroupDockItem(props: {
   const itemGap = dockItemGap(props.baseGap, props.baseSize, influence);
   const isFocused = (!props.muted && props.focusedIndex === props.index) || props.active;
   const [flyoutFocusedIndex, setFlyoutFocusedIndex] = useState<number | null>(null);
-  const flyoutLayout = dockLayoutForCount(props.captures.length, 420);
+  const persistedCaptureCount = props.provisionalCaptureId
+    ? Math.max(1, props.captures.length - 1)
+    : props.captures.length;
+  const flyoutLayout = dockLayoutForCount(persistedCaptureCount, 420);
   const slotHeight = size + itemGap;
   const flyoutRef = useRef<HTMLDivElement | null>(null);
+  const reorderingCaptureId = props.dragging?.kind === "capture" ? props.dragging.captureId : null;
+  const reorderingInsideFolder = reorderingCaptureId !== null &&
+    props.captures.some((capture) => capture.id === reorderingCaptureId);
 
   useStablePointerHover({
     containerRef: flyoutRef,
@@ -681,6 +1099,10 @@ function GroupDockItem(props: {
     setFocusedIndex: setFlyoutFocusedIndex,
     enabled: !props.presentationOnly && props.active && !props.dragging
   });
+
+  useEffect(() => {
+    if (props.dragging) setFlyoutFocusedIndex(null);
+  }, [props.dragging]);
 
   return (
     <div
@@ -723,7 +1145,13 @@ function GroupDockItem(props: {
       }}
       onDrop={(event) => {
         if (props.presentationOnly || props.muted) return;
-        const intent = railIntentForGroup(event, props.group.id, props.dragging);
+        const previewIntent = props.dropIntent?.scope === "rail" &&
+          props.dropIntent.action === "add-to-folder" &&
+          props.dropIntent.target.kind === "group" &&
+          props.dropIntent.target.id === props.group.id
+          ? props.dropIntent
+          : null;
+        const intent = previewIntent ?? railIntentForGroup(event, props.group.id, props.dragging);
         if (!intent) return;
         event.preventDefault();
         event.stopPropagation();
@@ -785,7 +1213,10 @@ function GroupDockItem(props: {
           </button>
           <div
             ref={flyoutRef}
-            className="justsnap-group-flyout"
+            className={[
+              "justsnap-group-flyout",
+              reorderingInsideFolder ? "justsnap-group-flyout-dragging" : ""
+            ].join(" ")}
             aria-label="Folder captures"
             style={
               {
@@ -793,6 +1224,36 @@ function GroupDockItem(props: {
                 "--justsnap-rail-surface": `${flyoutLayout.surfaceWidth}px`
               } as React.CSSProperties
             }
+            onDragOver={(event) => {
+              if (event.defaultPrevented) return;
+              const intent = folderIntentForPointer(
+                event.currentTarget,
+                event.clientY,
+                props.group.id,
+                props.captures,
+                props.dragging
+              );
+              props.setDropIntent(intent);
+              if (!intent) return;
+              event.preventDefault();
+              event.stopPropagation();
+              event.dataTransfer.dropEffect = "copy";
+            }}
+            onDrop={(event) => {
+              if (event.defaultPrevented) return;
+              const intent = folderIntentForPointer(
+                event.currentTarget,
+                event.clientY,
+                props.group.id,
+                props.captures,
+                props.dragging
+              );
+              if (!intent) return;
+              event.preventDefault();
+              event.stopPropagation();
+              props.setDropIntent(null);
+              props.onDropIntent(intent);
+            }}
           >
             {props.captures.map((capture, captureIndex) => (
               <GroupFlyoutDockItem
@@ -814,6 +1275,7 @@ function GroupDockItem(props: {
                 setDropIntent={props.setDropIntent}
                 onRemove={() => props.onRemoveCapture(capture.id)}
                 onCopy={() => props.onCopyCapture(capture.id)}
+                provisional={capture.id === props.provisionalCaptureId}
               />
             ))}
           </div>
@@ -823,8 +1285,8 @@ function GroupDockItem(props: {
   );
 }
 
-function folderButtonStyle(identity: number | string, width: number, height: number): React.CSSProperties {
-  const tone = typeof identity === "number" ? folderToneForSlot(identity) : folderToneForId(identity);
+function folderButtonStyle(colorSlot: number, width: number, height: number): React.CSSProperties {
+  const tone = folderToneForSlot(colorSlot);
   return {
     width,
     height,
@@ -851,6 +1313,7 @@ function GroupFlyoutDockItem(props: {
   setDropIntent: (intent: RailDropIntent | null) => void;
   onRemove: () => void;
   onCopy: () => void;
+  provisional: boolean;
 }) {
   const influence = dockInfluence(props.index, props.focusedIndex);
   const isFocused = props.focusedIndex === props.index;
@@ -868,10 +1331,12 @@ function GroupFlyoutDockItem(props: {
     <div
       ref={slotRef}
       data-docksnip-flyout-index={props.index}
+      data-docksnip-flyout-id={props.capture.id}
       className={[
         "justsnap-dock-slot",
         "justsnap-group-flyout-slot",
         isFocused ? "justsnap-dock-slot-hovered" : "",
+        props.provisional ? "justsnap-folder-preview-provisional" : "",
         folderIntentClass(props.dropIntent, props.groupId, props.capture.id)
       ].join(" ")}
       style={
@@ -905,7 +1370,7 @@ function GroupFlyoutDockItem(props: {
         className={["justsnap-dock-image-button", props.deliveryReady ? "" : "justsnap-card-loading"].join(" ")}
         style={{ width: frame.width, height: frame.height }}
         aria-label="Folder capture"
-        draggable={props.deliveryReady}
+        draggable={props.deliveryReady && !props.provisional}
         onDragStart={props.onDragStart}
         onDragEnd={props.onDragEnd}
         onFocus={() => props.setFocusedIndex(props.index)}
@@ -946,8 +1411,17 @@ function GroupFlyoutDockItem(props: {
 }
 
 function railIntentForCapture(event: React.DragEvent, targetCaptureId: string, drag: InternalDrag | null): RailDropIntent | null {
+  return railIntentForCapturePoint(event.currentTarget, event.clientY, targetCaptureId, drag);
+}
+
+function railIntentForCapturePoint(
+  element: Element,
+  pointerY: number,
+  targetCaptureId: string,
+  drag: InternalDrag | null
+): RailDropIntent | null {
   if (!drag) return null;
-  const zone = verticalDropZone(event);
+  const zone = verticalDropZoneForElement(element, pointerY);
   if (zone === "before" || zone === "after") {
     if (drag.kind === "capture" && drag.captureId === targetCaptureId) return null;
     return {
@@ -963,8 +1437,17 @@ function railIntentForCapture(event: React.DragEvent, targetCaptureId: string, d
 }
 
 function railIntentForGroup(event: React.DragEvent, targetGroupId: string, drag: InternalDrag | null): RailDropIntent | null {
+  return railIntentForGroupPoint(event.currentTarget, event.clientY, targetGroupId, drag);
+}
+
+function railIntentForGroupPoint(
+  element: Element,
+  pointerY: number,
+  targetGroupId: string,
+  drag: InternalDrag | null
+): RailDropIntent | null {
   if (!drag) return null;
-  const zone = verticalDropZone(event);
+  const zone = verticalDropZoneForElement(element, pointerY);
   if (zone === "before" || zone === "after") {
     if (drag.kind === "group" && drag.groupId === targetGroupId) return null;
     return {
@@ -998,6 +1481,59 @@ function folderIntentForCapture(
   return null;
 }
 
+function newFolderIntentForPointer(
+  container: HTMLElement,
+  pointerY: number,
+  targetCaptureId: string,
+  drag: InternalDrag | null
+): RailDropIntent | null {
+  if (!drag || drag.kind !== "capture" || drag.captureId === targetCaptureId) return null;
+  const target = container.querySelector<HTMLElement>(
+    `[data-docksnip-preview-id="${CSS.escape(targetCaptureId)}"]`
+  );
+  if (!target) return null;
+  const rect = target.getBoundingClientRect();
+  return {
+    scope: "rail",
+    action: "create-folder",
+    target: { kind: "capture", id: targetCaptureId },
+    position: pointerY < rect.top + rect.height / 2 ? "insert-before" : "insert-after"
+  };
+}
+
+function folderIntentForPointer(
+  container: HTMLElement,
+  pointerY: number,
+  groupId: string,
+  captures: Capture[],
+  drag: InternalDrag | null
+): RailDropIntent | null {
+  if (!drag || drag.kind !== "capture") return null;
+
+  const candidates = captures
+    .filter((capture) => capture.id !== drag.captureId)
+    .map((capture) => {
+      const slot = container.querySelector<HTMLElement>(
+        `[data-docksnip-flyout-id="${CSS.escape(capture.id)}"]`
+      );
+      return slot ? { captureId: capture.id, rect: slot.getBoundingClientRect() } : null;
+    })
+    .filter((candidate): candidate is { captureId: string; rect: DOMRect } => candidate !== null)
+    .sort((first, second) => first.rect.top - second.rect.top);
+
+  if (!candidates.length) return null;
+  const target = candidates.find((candidate) => pointerY < candidate.rect.top + candidate.rect.height / 2);
+  if (target) {
+    return { scope: "folder", action: "insert-before", groupId, targetCaptureId: target.captureId };
+  }
+  return {
+    scope: "folder",
+    action: "insert-after",
+    groupId,
+    targetCaptureId: candidates[candidates.length - 1].captureId
+  };
+}
+
 function verticalDropZone(event: React.DragEvent): "before" | "center" | "after" {
   return verticalDropZoneForElement(event.currentTarget, event.clientY);
 }
@@ -1022,6 +1558,22 @@ function folderIntentClass(intent: RailDropIntent | null, groupId: string, captu
   if (intent.action === "insert-before") return "justsnap-drop-before";
   if (intent.action === "insert-after") return "justsnap-drop-after";
   return "justsnap-drop-add-folder";
+}
+
+function newFolderIntentClass(
+  intent: RailDropIntent | null,
+  targetCaptureId: string,
+  captureId: string
+): string {
+  if (
+    !intent ||
+    intent.scope !== "rail" ||
+    intent.action !== "create-folder" ||
+    intent.target.id !== targetCaptureId ||
+    captureId !== targetCaptureId ||
+    !intent.position
+  ) return "";
+  return intent.position === "insert-before" ? "justsnap-drop-before" : "justsnap-drop-after";
 }
 
 function railOrderItemMatches(first: RailOrderItem, second: RailOrderItem): boolean {
@@ -1256,4 +1808,38 @@ function pointerDistanceFromRect(x: number, y: number, rect: DOMRect): number {
   const horizontalDistance = Math.max(rect.left - x, 0, x - rect.right);
   const verticalDistance = Math.max(rect.top - y, 0, y - rect.bottom);
   return Math.hypot(horizontalDistance, verticalDistance);
+}
+
+function pointWithinRect(point: { clientX: number; clientY: number }, rect: DOMRect, inset = 0): boolean {
+  return point.clientX >= rect.left - inset &&
+    point.clientX <= rect.right + inset &&
+    point.clientY >= rect.top - inset &&
+    point.clientY <= rect.bottom + inset;
+}
+
+function updateDragMotion(
+  motion: { x: number; y: number; at: number; speed: number },
+  x: number,
+  y: number,
+  at: number
+): void {
+  const elapsed = at - motion.at;
+  if (motion.at <= 0 || elapsed <= 0 || elapsed > 250) {
+    motion.speed = 0;
+  } else {
+    const distance = Math.hypot(x - motion.x, y - motion.y);
+    const instantaneousSpeed = distance / (elapsed / 1000);
+    motion.speed = motion.speed === 0
+      ? instantaneousSpeed
+      : motion.speed * 0.6 + instantaneousSpeed * 0.4;
+  }
+  motion.x = x;
+  motion.y = y;
+  motion.at = at;
+}
+
+function folderPreviewDwellMsForSpeed(speed: number): number {
+  if (speed >= 900) return FOLDER_PREVIEW_FAST_DWELL_MS;
+  if (speed >= 300) return FOLDER_PREVIEW_MEDIUM_DWELL_MS;
+  return FOLDER_PREVIEW_SLOW_DWELL_MS;
 }

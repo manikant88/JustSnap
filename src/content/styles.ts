@@ -15,6 +15,9 @@ export const styles = `
     --docksnip-control-hover: #30343b;
     --docksnip-control-border: #41454d;
     --docksnip-active-accent: #fff;
+    --docksnip-insertion-fill: #fff;
+    --docksnip-insertion-keyline: rgba(5, 5, 6, 0.72);
+    --docksnip-insertion-shadow: rgba(5, 5, 6, 0.28);
     --docksnip-success-background: #168642;
     --docksnip-success-hover: #1a9950;
     --docksnip-success-active: #127038;
@@ -455,10 +458,10 @@ export const styles = `
     width: max(34px, var(--justsnap-rail-surface, 74px));
     height: 3px;
     border-radius: 999px;
-    background: var(--docksnip-active-accent);
+    background: var(--docksnip-insertion-fill);
     box-shadow:
-      0 0 0 3px color-mix(in srgb, var(--docksnip-active-accent) 16%, transparent),
-      0 8px 16px color-mix(in srgb, var(--docksnip-active-accent) 24%, transparent);
+      0 0 0 1px var(--docksnip-insertion-keyline),
+      0 3px 8px var(--docksnip-insertion-shadow);
     opacity: 0;
     pointer-events: none;
     transition: opacity 100ms ease-out;
@@ -746,6 +749,31 @@ export const styles = `
     translate: 0 -50%;
     pointer-events: none !important;
     animation: docksnip-flyout-enter 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .justsnap-group-flyout.justsnap-group-flyout-dragging {
+    pointer-events: auto !important;
+    animation: none;
+  }
+  .justsnap-folder-preview-provisional > .justsnap-dock-image-button {
+    isolation: isolate;
+  }
+  .justsnap-folder-preview-provisional > .justsnap-dock-image-button img {
+    opacity: 0.72;
+    filter: saturate(0.86);
+  }
+  .justsnap-folder-preview-provisional > .justsnap-dock-image-button::before {
+    content: "";
+    position: absolute;
+    inset: 2px;
+    z-index: 4;
+    border-radius: 6px;
+    background:
+      repeating-linear-gradient(90deg, #fff 0 11px, transparent 11px 18px) left top / 100% 2px no-repeat,
+      repeating-linear-gradient(90deg, #fff 0 11px, transparent 11px 18px) left bottom / 100% 2px no-repeat,
+      repeating-linear-gradient(180deg, #fff 0 11px, transparent 11px 18px) left top / 2px 100% no-repeat,
+      repeating-linear-gradient(180deg, #fff 0 11px, transparent 11px 18px) right top / 2px 100% no-repeat;
+    filter: drop-shadow(0 0 1px rgba(5, 5, 6, 0.86));
+    pointer-events: none;
   }
   .justsnap-group-flyout-slot {
     flex: 0 0 auto;

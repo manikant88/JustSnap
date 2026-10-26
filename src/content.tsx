@@ -17,7 +17,13 @@ import { groupContaining } from "../shared/libraryModel";
 import { dockLayoutForCount } from "./content/dockLayout";
 import { DockFrame } from "./content/docks/DockFrame";
 import { friendlyErrorMessage, isInsertionFailure } from "./content/errorMessages";
-import { captureFileForDrag, copyFilesToClipboard, dragPreviewElement, prepareDeliveryImage } from "./content/drag/filePayload";
+import {
+  captureFileForDrag,
+  copyFilesToClipboard,
+  createCompactDragPreview,
+  prepareDeliveryImage,
+  type NativeDragPreview
+} from "./content/drag/filePayload";
 import { deliveryCaptureKey, filesForDelivery } from "./content/drag/deliveryPreparation";
 import {
   placeFilesInCurrentPage,
@@ -202,6 +208,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
   const [preparedDeliveryKey, setPreparedDeliveryKey] = useState("");
   const [recentlyAddedCaptureId, setRecentlyAddedCaptureId] = useState<string | null>(null);
   const pendingDragPayload = useRef<DragPayload | null>(null);
+  const nativeDragPreviewRef = useRef<NativeDragPreview | null>(null);
   const lastDragPoint = useRef<Point | null>(null);
   const pageImageTarget = useRef<PageImageTarget | null>(null);
   const captureSessionRef = useRef<CaptureSessionSnapshot | null>(null);
@@ -215,6 +222,10 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
   const snipDockOriginRectRef = useRef<DOMRect | null>(null);
   const snipToolbarOriginRectRef = useRef<DOMRect | null>(null);
   const captureMode = inputMode === "snip";
+
+  useEffect(() => () => {
+    nativeDragPreviewRef.current?.dispose();
+  }, []);
 
   const applyLibraryState = useCallback((library: LibraryState) => {
     setCaptures(library.captures);
@@ -709,8 +720,10 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
       }
     }
 
-    const dragImage = dragPreviewElement(event.currentTarget, drag.kind);
-    if (dragImage) transfer.setDragImage(dragImage, 24, 24);
+    nativeDragPreviewRef.current?.dispose();
+    const dragPreview = createCompactDragPreview(event.currentTarget, drag.kind);
+    nativeDragPreviewRef.current = dragPreview ?? null;
+    if (dragPreview) transfer.setDragImage(dragPreview.element, 28, 28);
 
   };
 
@@ -734,6 +747,8 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
   };
 
   const finishItemDrag = async (event: React.DragEvent) => {
+    nativeDragPreviewRef.current?.dispose();
+    nativeDragPreviewRef.current = null;
     const payload = pendingDragPayload.current;
     const point = event.clientX || event.clientY ? { x: event.clientX, y: event.clientY } : lastDragPoint.current;
     pendingDragPayload.current = null;
@@ -753,6 +768,8 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
 
   const applyRailDropIntent = async (intent: RailDropIntent) => {
     if (!dragging) return;
+    nativeDragPreviewRef.current?.dispose();
+    nativeDragPreviewRef.current = null;
     pendingDragPayload.current = null;
     setDragging(null);
 
@@ -770,7 +787,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
 
     if (intent.scope === "rail" && intent.action === "create-folder") {
       if (dragging.kind !== "capture") return;
-      await createOrUpdateGroup(dragging.captureId, intent.target.id);
+      await createOrUpdateGroup(dragging.captureId, intent.target.id, intent.position);
       return;
     }
 
@@ -792,22 +809,33 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
     }
   };
 
-  const createOrUpdateGroup = async (sourceCaptureId: string, targetCaptureId: string) => {
+  const createOrUpdateGroup = async (
+    sourceCaptureId: string,
+    targetCaptureId: string,
+    position?: "insert-before" | "insert-after"
+  ) => {
     const target = captures.find((capture) => capture.id === targetCaptureId);
     if (!target) return;
     const targetGroup = groupContaining(groups, targetCaptureId);
     if (targetGroup) {
       await addCaptureToGroup(sourceCaptureId, targetGroup.id);
+      if (position === "insert-before") {
+        await moveCaptureIntoGroup(sourceCaptureId, targetGroup.id, targetCaptureId, position);
+      }
       return;
     }
+    const groupId = crypto.randomUUID();
     await runLibraryMutation({
       type: "create_group",
-      groupId: crypto.randomUUID(),
+      groupId,
       name: "New folder",
       createdAt: Date.now(),
       sourceCaptureId,
       targetCaptureId
     });
+    if (position === "insert-before") {
+      await moveCaptureIntoGroup(sourceCaptureId, groupId, targetCaptureId, position);
+    }
   };
 
   const addCaptureToGroup = async (captureId: string, groupId: string) => {

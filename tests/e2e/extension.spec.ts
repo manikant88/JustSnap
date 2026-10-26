@@ -198,6 +198,524 @@ test("preserves an active folder destination when switching tabs", async () => {
   }
 });
 
+test("uses a compact drag preview and releases hover while dragging", async () => {
+  const context = await chromium.launchPersistentContext("", {
+    channel: "chromium",
+    headless: true,
+    viewport: { width: 900, height: 700 },
+    args: [
+      `--disable-extensions-except=${extensionPath}`,
+      `--load-extension=${extensionPath}`
+    ]
+  });
+
+  try {
+    let [serviceWorker] = context.serviceWorkers();
+    serviceWorker ??= await context.waitForEvent("serviceworker");
+    const page = await openTestPage(context, "https://compact-drag-preview.docksnip.test/");
+    await showDock(serviceWorker, page);
+
+    await page.getByRole("button", { name: "Snip it" }).click();
+    await page.mouse.move(80, 160);
+    await page.mouse.down();
+    await page.mouse.move(260, 300);
+    await page.mouse.up();
+    await page.getByTitle("Done snipping (Enter)").click();
+
+    const capture = page.getByRole("button", { name: "DockSnip capture" });
+    await page.mouse.move(20, 20);
+    await expect(page.locator(".justsnap-dock-slot-hovered")).toHaveCount(0);
+    await page.waitForTimeout(250);
+    const compactBox = await capture.boundingBox();
+    if (!compactBox) throw new Error("Dock capture has no compact layout box.");
+    await capture.hover();
+    await expect.poll(() => capture.getAttribute("draggable")).toBe("true");
+    await expect(page.locator(".justsnap-dock-slot-hovered")).toHaveCount(1);
+    await expect.poll(async () => {
+      const box = await capture.boundingBox();
+      return box ? Math.max(box.width, box.height) : 0;
+    }).toBeGreaterThan(Math.max(compactBox.width, compactBox.height) + 20);
+    const expandedBox = await capture.boundingBox();
+    if (!expandedBox) throw new Error("Dock capture has no expanded layout box.");
+    expect(Math.max(expandedBox.width, expandedBox.height)).toBeGreaterThan(
+      Math.max(compactBox.width, compactBox.height) + 20
+    );
+
+    const x = expandedBox.x + expandedBox.width / 2;
+    const y = expandedBox.y + expandedBox.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x - 70, y, { steps: 5 });
+
+    await expect(page.locator(".justsnap-dock-slot-hovered")).toHaveCount(0);
+    const dragPreview = page.locator('[data-docksnip-native-drag-preview="capture"]');
+    await expect(dragPreview).toHaveCount(1);
+    const previewBox = await dragPreview.boundingBox();
+    if (!previewBox) throw new Error("Compact drag preview has no layout box.");
+    expect(previewBox.width).toBeCloseTo(56, 0);
+    expect(previewBox.height).toBeCloseTo(56, 0);
+    await expect.poll(async () => {
+      const box = await capture.boundingBox();
+      return box ? Math.max(box.width, box.height) : Number.POSITIVE_INFINITY;
+    }).toBeLessThanOrEqual(Math.max(compactBox.width, compactBox.height) + 1);
+
+    await page.mouse.up();
+    await expect(dragPreview).toHaveCount(0);
+    await expect(page.locator(".justsnap-dock-slot-hovered")).toHaveCount(0);
+    await capture.hover();
+    await expect(page.locator(".justsnap-dock-slot-hovered")).toHaveCount(1);
+  } finally {
+    await context.close();
+  }
+});
+
+test("previews folder creation transactionally before committing the drop", async () => {
+  test.setTimeout(60_000);
+  const context = await chromium.launchPersistentContext("", {
+    channel: "chromium",
+    headless: true,
+    viewport: { width: 900, height: 700 },
+    args: [
+      `--disable-extensions-except=${extensionPath}`,
+      `--load-extension=${extensionPath}`
+    ]
+  });
+
+  try {
+    let [serviceWorker] = context.serviceWorkers();
+    serviceWorker ??= await context.waitForEvent("serviceworker");
+    const page = await openTestPage(context, "https://folder-preview.docksnip.test/");
+    await showDock(serviceWorker, page);
+
+    await page.getByRole("button", { name: "Snip it" }).click();
+    await page.mouse.move(80, 160);
+    await page.mouse.down();
+    await page.mouse.move(240, 280);
+    await page.mouse.up();
+    await page.getByTitle("Done snipping (Enter)").click();
+    await page.getByRole("button", { name: "Snip it" }).click();
+    await page.mouse.move(300, 160);
+    await page.mouse.down();
+    await page.mouse.move(480, 300);
+    await page.mouse.up();
+    await page.getByTitle("Done snipping (Enter)").click();
+
+    const captures = page.getByRole("button", { name: "DockSnip capture" });
+    await expect(captures).toHaveCount(2);
+    await captures.nth(1).hover();
+    await expect.poll(() => captures.nth(1).getAttribute("draggable")).toBe("true");
+    const railSlots = page.locator('[data-docksnip-rail-kind="capture"]');
+    const initialIds = await railSlots.evaluateAll((slots) =>
+      slots.map((slot) => (slot as HTMLElement).dataset.docksnipRailId)
+    );
+
+    const source = captures.nth(1);
+    await source.hover();
+    const sourceBox = await source.boundingBox();
+    if (!sourceBox) throw new Error("Folder preview source has no layout box.");
+    await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(sourceBox.x - 70, sourceBox.y + sourceBox.height / 2, { steps: 5 });
+    await expect(page.locator('[data-docksnip-native-drag-preview="capture"]')).toHaveCount(1);
+    await page.waitForTimeout(220);
+    const targetSlot = page.locator(
+      `[data-docksnip-rail-kind="capture"][data-docksnip-rail-id="${initialIds[0]}"]`
+    );
+    const targetBox = await targetSlot.getByRole("button", { name: "DockSnip capture" }).boundingBox();
+    if (!targetBox) throw new Error("Folder preview target has no layout box.");
+    await page.mouse.move(
+      targetBox.x + targetBox.width - 4,
+      targetBox.y + targetBox.height * 0.3,
+      { steps: 8 }
+    );
+    await page.mouse.move(
+      targetBox.x + targetBox.width - 5,
+      targetBox.y + targetBox.height * 0.3
+    );
+    await expect(targetSlot).toHaveClass(/justsnap-drop-before/, { timeout: 750 });
+    await expect(page.getByLabel("New folder captures")).toHaveCount(0);
+
+    await page.mouse.move(targetBox.x + targetBox.width - 4, targetBox.y + targetBox.height / 2, { steps: 8 });
+    await expect(targetSlot).toHaveClass(/justsnap-drop-create-folder/);
+
+    const previewFlyout = page.getByLabel("New folder captures");
+    await expect(previewFlyout).toBeVisible();
+    await expect(previewFlyout.locator(".justsnap-folder-preview-provisional")).toHaveCount(1);
+    const previewFolder = page.getByRole("button", { name: "New folder" });
+    await expect(previewFolder).toBeVisible();
+    const previewFolderTone = await previewFolder.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        surface: style.getPropertyValue("--docksnip-folder-surface").trim(),
+        border: style.getPropertyValue("--docksnip-folder-border").trim()
+      };
+    });
+
+    await page.mouse.move(620, 120, { steps: 6 });
+    await expect(previewFlyout).toHaveCount(0);
+    await expect(railSlots).toHaveCount(2);
+
+    const restoredTargetBox = await targetSlot.getByRole("button", { name: "DockSnip capture" }).boundingBox();
+    if (!restoredTargetBox) throw new Error("Restored folder preview target has no layout box.");
+    await page.mouse.move(
+      restoredTargetBox.x + restoredTargetBox.width - 4,
+      restoredTargetBox.y + restoredTargetBox.height / 2,
+      { steps: 8 }
+    );
+    await expect(previewFlyout).toBeVisible();
+
+    const previewTarget = previewFlyout.locator(`[data-docksnip-preview-id="${initialIds[0]}"]`);
+    const previewTargetBox = await previewTarget.boundingBox();
+    if (!previewTargetBox) throw new Error("Provisional folder target has no layout box.");
+    const previewInsertionX = previewTargetBox.x + previewTargetBox.width - 4;
+    const previewInsertionY = previewTargetBox.y + 2;
+    await page.mouse.move(
+      previewInsertionX,
+      restoredTargetBox.y + restoredTargetBox.height / 2,
+      { steps: 5 }
+    );
+    await page.mouse.move(previewInsertionX, previewInsertionY, { steps: 8 });
+    await expect(previewTarget).toHaveClass(/justsnap-drop-before/);
+    await page.mouse.up();
+
+    const folder = page.getByRole("button", { name: "Folder, 2 captures" });
+    await expect(folder).toBeVisible();
+    const committedFolderTone = await folder.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        surface: style.getPropertyValue("--docksnip-folder-surface").trim(),
+        border: style.getPropertyValue("--docksnip-folder-border").trim()
+      };
+    });
+    expect(committedFolderTone).toEqual(previewFolderTone);
+    await folder.hover();
+    const committedIds = await page.locator(".justsnap-group-flyout-slot").evaluateAll((slots) =>
+      slots.map((slot) => (slot as HTMLElement).dataset.docksnipFlyoutId)
+    );
+    expect(committedIds).toEqual([initialIds[1], initialIds[0]]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("previews adding a capture to an existing folder before committing the drop", async () => {
+  test.setTimeout(60_000);
+  const context = await chromium.launchPersistentContext("", {
+    channel: "chromium",
+    headless: true,
+    viewport: { width: 900, height: 700 },
+    args: [
+      `--disable-extensions-except=${extensionPath}`,
+      `--load-extension=${extensionPath}`
+    ]
+  });
+
+  try {
+    let [serviceWorker] = context.serviceWorkers();
+    serviceWorker ??= await context.waitForEvent("serviceworker");
+    const page = await openTestPage(context, "https://folder-add-preview.docksnip.test/");
+    await showDock(serviceWorker, page);
+
+    await page.getByRole("button", { name: "Add Folder" }).click();
+    await page.getByRole("button", { name: "Snip it" }).click();
+    await page.mouse.move(80, 160);
+    await page.mouse.down();
+    await page.mouse.move(240, 280);
+    await page.mouse.up();
+    await page.mouse.move(300, 160);
+    await page.mouse.down();
+    await page.mouse.move(480, 300);
+    await page.mouse.up();
+    await page.getByTitle("Done snipping (Enter)").click();
+    await page.getByTitle("Finish adding (Enter)").click();
+    await page.waitForTimeout(300);
+
+    await page.getByRole("button", { name: "Snip it" }).click();
+    await expect(page.getByTitle("Done snipping (Enter)")).toBeVisible();
+    await page.waitForTimeout(150);
+    await page.mouse.move(100, 360);
+    await page.mouse.down();
+    await page.mouse.move(280, 500);
+    await page.mouse.up();
+    await page.getByTitle("Done snipping (Enter)").click();
+
+    const folder = page.getByRole("button", { name: "Folder, 2 captures" });
+    await folder.hover();
+    const persistedIds = await page.locator(".justsnap-group-flyout-slot").evaluateAll((slots) =>
+      slots.map((slot) => (slot as HTMLElement).dataset.docksnipFlyoutId)
+    );
+    expect(persistedIds).toHaveLength(2);
+    await page.mouse.move(620, 120);
+    await expect(page.getByLabel("Folder captures")).toHaveCount(0);
+
+    const source = page.getByRole("button", { name: "DockSnip capture" });
+    await expect(source).toHaveCount(1);
+    const sourceId = await page.locator('[data-docksnip-rail-kind="capture"]').getAttribute("data-docksnip-rail-id");
+    const compactSourceBox = await source.boundingBox();
+    if (!compactSourceBox || !sourceId) throw new Error("Existing-folder preview source is unavailable.");
+    await page.mouse.move(
+      compactSourceBox.x + compactSourceBox.width / 2,
+      compactSourceBox.y + compactSourceBox.height / 2
+    );
+    await expect.poll(() => source.getAttribute("draggable")).toBe("true");
+    const sourceBox = await source.boundingBox();
+    if (!sourceBox) throw new Error("Existing-folder preview source did not expand.");
+    await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(sourceBox.x - 70, sourceBox.y + sourceBox.height / 2, { steps: 5 });
+    await expect(page.locator('[data-docksnip-native-drag-preview="capture"]')).toHaveCount(1);
+    await page.waitForTimeout(220);
+
+    const folderSlot = page.locator('[data-docksnip-rail-kind="group"]');
+    const [folderBox, folderSlotBox] = await Promise.all([folder.boundingBox(), folderSlot.boundingBox()]);
+    if (!folderBox || !folderSlotBox) throw new Error("Existing folder target has no layout box.");
+    const folderTargetX = folderBox.x + folderBox.width - 4;
+    const folderTargetY = folderSlotBox.y + folderSlotBox.height / 2;
+    await page.mouse.move(folderTargetX, sourceBox.y + sourceBox.height / 2, { steps: 5 });
+    await page.mouse.move(folderTargetX, folderTargetY, { steps: 8 });
+    const folderFlyout = page.getByLabel("Folder captures");
+    await expect(folderFlyout).toBeVisible();
+    await expect(folderFlyout.locator(".justsnap-folder-preview-provisional")).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Folder, 3 captures" })).toBeVisible();
+
+    const firstPersisted = folderFlyout.locator(`[data-docksnip-flyout-id="${persistedIds[0]}"]`);
+    const firstPersistedBox = await firstPersisted.boundingBox();
+    if (!firstPersistedBox) throw new Error("Preview flyout insertion target has no layout box.");
+    await page.mouse.move(
+      firstPersistedBox.x + firstPersistedBox.width - 4,
+      firstPersistedBox.y + 2,
+      { steps: 8 }
+    );
+    await expect(folderFlyout).toBeVisible();
+    await expect(firstPersisted).toHaveClass(/justsnap-drop-before/);
+    await page.mouse.up();
+
+    const committedFolder = page.getByRole("button", { name: "Folder, 3 captures" });
+    await expect(committedFolder).toBeVisible();
+    await expect(page.locator('[data-docksnip-rail-kind="capture"]')).toHaveCount(0);
+    await committedFolder.hover();
+    await expect.poll(async () =>
+      page.locator(".justsnap-group-flyout-slot").evaluateAll((slots) =>
+        slots.map((slot) => (slot as HTMLElement).dataset.docksnipFlyoutId)
+      )
+    ).toEqual([sourceId, ...persistedIds]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("moves a capture between folders and back into the main Dock", async () => {
+  test.setTimeout(90_000);
+  const context = await chromium.launchPersistentContext("", {
+    channel: "chromium",
+    headless: true,
+    viewport: { width: 900, height: 700 },
+    args: [
+      `--disable-extensions-except=${extensionPath}`,
+      `--load-extension=${extensionPath}`
+    ]
+  });
+
+  try {
+    let [serviceWorker] = context.serviceWorkers();
+    serviceWorker ??= await context.waitForEvent("serviceworker");
+    const page = await openTestPage(context, "https://cross-folder-drag.docksnip.test/");
+    await showDock(serviceWorker, page);
+
+    await page.getByRole("button", { name: "Add Folder" }).click();
+    await page.getByRole("button", { name: "Snip it" }).click();
+    await page.mouse.move(80, 150);
+    await page.mouse.down();
+    await page.mouse.move(230, 270);
+    await page.mouse.up();
+    await page.mouse.move(270, 150);
+    await page.mouse.down();
+    await page.mouse.move(420, 270);
+    await page.mouse.up();
+    await page.getByTitle("Done snipping (Enter)").click();
+    await page.getByTitle("Finish adding (Enter)").click();
+    await page.waitForTimeout(300);
+
+    await page.getByRole("button", { name: "Add Folder" }).click();
+    await page.getByRole("button", { name: "Snip it" }).click();
+    await expect(page.getByTitle("Done snipping (Enter)")).toBeVisible();
+    await page.waitForTimeout(150);
+    await page.mouse.move(80, 350);
+    await page.mouse.down();
+    await page.mouse.move(230, 470);
+    await page.mouse.up();
+    await page.waitForTimeout(250);
+    await page.getByTitle("Done snipping (Enter)").click();
+    await page.getByTitle("Finish adding (Enter)").click();
+
+    const groupSlots = page.locator('[data-docksnip-rail-kind="group"]');
+    await expect(groupSlots).toHaveCount(2);
+    const groupMeta = await groupSlots.evaluateAll((slots) => slots.map((slot) => ({
+      id: (slot as HTMLElement).dataset.docksnipRailId,
+      label: slot.querySelector("button")?.getAttribute("aria-label")
+    })));
+    const sourceGroupId = groupMeta.find((group) => group.label === "Folder, 2 captures")?.id;
+    const targetGroupId = groupMeta.find((group) => group.label === "Folder, 1 captures")?.id;
+    if (!sourceGroupId || !targetGroupId) {
+      throw new Error(`Cross-folder test groups were not created: ${JSON.stringify(groupMeta)}`);
+    }
+
+    const sourceGroup = page.locator(`[data-docksnip-rail-id="${sourceGroupId}"]`);
+    const targetGroup = page.locator(`[data-docksnip-rail-id="${targetGroupId}"]`);
+    await sourceGroup.getByRole("button", { name: "Folder, 2 captures" }).hover();
+    const sourceFlyout = page.getByLabel("Folder captures");
+    await expect(sourceFlyout).toBeVisible();
+    const sourceCaptureSlot = sourceFlyout.locator(".justsnap-group-flyout-slot").first();
+    const movedCaptureId = await sourceCaptureSlot.getAttribute("data-docksnip-flyout-id");
+    const sourceCapture = sourceCaptureSlot.getByRole("button", { name: "Folder capture" });
+    if (!movedCaptureId) throw new Error("Cross-folder source capture is unavailable.");
+    await sourceCapture.hover();
+    await expect.poll(() => sourceCapture.getAttribute("draggable")).toBe("true");
+    const sourceCaptureBox = await sourceCapture.boundingBox();
+    if (!sourceCaptureBox) throw new Error("Cross-folder source capture has no layout box.");
+    await page.mouse.move(sourceCaptureBox.x + sourceCaptureBox.width / 2, sourceCaptureBox.y + sourceCaptureBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(sourceCaptureBox.x - 70, sourceCaptureBox.y + sourceCaptureBox.height / 2, { steps: 5 });
+    await expect(page.locator('[data-docksnip-native-drag-preview="capture"]')).toHaveCount(1);
+    await page.waitForTimeout(220);
+
+    const targetFolder = targetGroup.getByRole("button", { name: "Folder, 1 captures" });
+    const [targetFolderBox, targetGroupBox] = await Promise.all([
+      targetFolder.boundingBox(),
+      targetGroup.boundingBox()
+    ]);
+    if (!targetFolderBox || !targetGroupBox) throw new Error("Cross-folder target has no layout box.");
+    const targetX = targetFolderBox.x + targetFolderBox.width - 4;
+    const targetY = targetGroupBox.y + targetGroupBox.height / 2;
+    await page.mouse.move(targetX, sourceCaptureBox.y + sourceCaptureBox.height / 2, { steps: 5 });
+    await page.mouse.move(targetX, targetY, { steps: 8 });
+
+    const targetPreviewFlyout = page.getByLabel("Folder captures");
+    await expect(targetPreviewFlyout).toBeVisible();
+    await expect(targetPreviewFlyout.locator(".justsnap-folder-preview-provisional")).toHaveCount(1);
+    await expect(targetGroup.getByRole("button", { name: "Folder, 2 captures" })).toBeVisible();
+    await page.mouse.up();
+
+    await expect(sourceGroup.getByRole("button", { name: "Folder, 1 captures" })).toBeVisible();
+    const committedTarget = targetGroup.getByRole("button", { name: "Folder, 2 captures" });
+    await page.waitForTimeout(300);
+    if (!(await committedTarget.isVisible())) {
+      const labelsAfterFolderDrop = await groupSlots.evaluateAll((slots) => slots.map((slot) => ({
+        id: (slot as HTMLElement).dataset.docksnipRailId,
+        label: slot.querySelector("button")?.getAttribute("aria-label")
+      })));
+      throw new Error(`Cross-folder drop was not committed: ${JSON.stringify(labelsAfterFolderDrop)}`);
+    }
+
+    await committedTarget.hover();
+    const targetFlyout = page.getByLabel("Folder captures");
+    const movedCaptureSlot = targetFlyout.locator(`[data-docksnip-flyout-id="${movedCaptureId}"]`);
+    const movedCapture = movedCaptureSlot.getByRole("button", { name: "Folder capture" });
+    await movedCapture.hover();
+    await expect.poll(() => movedCapture.getAttribute("draggable")).toBe("true");
+    const movedCaptureBox = await movedCapture.boundingBox();
+    if (!movedCaptureBox) throw new Error("Committed cross-folder capture has no layout box.");
+    await page.mouse.move(movedCaptureBox.x + movedCaptureBox.width / 2, movedCaptureBox.y + movedCaptureBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(movedCaptureBox.x - 70, movedCaptureBox.y + movedCaptureBox.height / 2, { steps: 5 });
+    await expect(page.locator('[data-docksnip-native-drag-preview="capture"]')).toHaveCount(1);
+    await page.waitForTimeout(220);
+
+    const dockTargetFolder = sourceGroup.getByRole("button", { name: "Folder, 1 captures" });
+    const [dockTargetButtonBox, dockTargetSlotBox] = await Promise.all([
+      dockTargetFolder.boundingBox(),
+      sourceGroup.boundingBox()
+    ]);
+    if (!dockTargetButtonBox || !dockTargetSlotBox) throw new Error("Main Dock insertion target has no layout box.");
+    const dockTargetX = dockTargetButtonBox.x + dockTargetButtonBox.width - 4;
+    const dockTargetY = dockTargetSlotBox.y + 2;
+    await page.mouse.move(dockTargetX, movedCaptureBox.y + movedCaptureBox.height / 2, { steps: 5 });
+    await page.mouse.move(dockTargetX, dockTargetY, { steps: 8 });
+    await expect(sourceGroup).toHaveClass(/justsnap-drop-before/, { timeout: 750 });
+    await page.mouse.up();
+
+    await expect(page.locator(`[data-docksnip-rail-kind="capture"][data-docksnip-rail-id="${movedCaptureId}"]`)).toBeVisible();
+    await expect(targetGroup.getByRole("button", { name: "Folder, 1 captures" })).toBeVisible();
+    await expect(sourceGroup.getByRole("button", { name: "Folder, 1 captures" })).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
+
+test("keeps a folder open while reordering captures inside it", async () => {
+  test.setTimeout(60_000);
+  const context = await chromium.launchPersistentContext("", {
+    channel: "chromium",
+    headless: true,
+    viewport: { width: 900, height: 700 },
+    args: [
+      `--disable-extensions-except=${extensionPath}`,
+      `--load-extension=${extensionPath}`
+    ]
+  });
+
+  try {
+    let [serviceWorker] = context.serviceWorkers();
+    serviceWorker ??= await context.waitForEvent("serviceworker");
+    const page = await openTestPage(context, "https://folder-reorder.docksnip.test/");
+    await showDock(serviceWorker, page);
+
+    await page.getByRole("button", { name: "Add Folder" }).click();
+    await page.getByRole("button", { name: "Snip it" }).click();
+    await page.mouse.move(80, 160);
+    await page.mouse.down();
+    await page.mouse.move(240, 280);
+    await page.mouse.up();
+    await page.mouse.move(300, 160);
+    await page.mouse.down();
+    await page.mouse.move(480, 300);
+    await page.mouse.up();
+    await page.getByTitle("Done snipping (Enter)").click();
+    await page.getByTitle("Finish adding (Enter)").click();
+
+    const folder = page.getByRole("button", { name: "Folder, 2 captures" });
+    await folder.hover();
+    const flyout = page.getByLabel("Folder captures");
+    await expect(flyout).toBeVisible();
+    const captures = page.getByRole("button", { name: "Folder capture" });
+    await expect(captures).toHaveCount(2);
+    const flyoutSlots = page.locator(".justsnap-group-flyout-slot");
+    const initialIds = await flyoutSlots.evaluateAll((slots) =>
+      slots.map((slot) => (slot as HTMLElement).dataset.docksnipFlyoutId)
+    );
+    await expect.poll(() => captures.nth(0).getAttribute("draggable")).toBe("true");
+    await captures.nth(0).hover();
+    const sourceBox = await captures.nth(0).boundingBox();
+    if (!sourceBox) throw new Error("Folder reorder source has no layout box.");
+    await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(sourceBox.x - 70, sourceBox.y + sourceBox.height / 2, { steps: 5 });
+    await expect(page.locator('[data-docksnip-native-drag-preview="capture"]')).toHaveCount(1);
+    await expect(flyout).toBeVisible();
+    await expect(page.locator(".justsnap-group-flyout-slot.justsnap-dock-slot-hovered")).toHaveCount(0);
+    const [secondTargetBox, flyoutBox] = await Promise.all([
+      captures.nth(1).boundingBox(),
+      flyout.boundingBox()
+    ]);
+    if (!secondTargetBox || !flyoutBox) throw new Error("Folder reorder target has no layout box.");
+    const targetPoint = {
+      x: secondTargetBox.x + secondTargetBox.width - 4,
+      y: flyoutBox.y + flyoutBox.height - 2
+    };
+    await page.mouse.move(targetPoint.x, targetPoint.y, { steps: 6 });
+    await expect(flyoutSlots.nth(1)).toHaveClass(/justsnap-drop-after/);
+    await page.mouse.up();
+
+    await expect(page.locator('[data-docksnip-native-drag-preview="capture"]')).toHaveCount(0);
+    await expect(flyout).toBeVisible();
+    await expect.poll(async () =>
+      flyoutSlots.evaluateAll((slots) => slots.map((slot) => (slot as HTMLElement).dataset.docksnipFlyoutId))
+    ).toEqual([initialIds[1], initialIds[0]]);
+  } finally {
+    await context.close();
+  }
+});
+
 test("closes a populated folder flyout over Dock controls and undoes destructive actions", async () => {
   test.setTimeout(60_000);
   const context = await chromium.launchPersistentContext("", {
