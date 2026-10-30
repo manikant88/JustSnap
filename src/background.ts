@@ -128,7 +128,7 @@ async function handleMessage(request: BackgroundRequest, sender: chrome.runtime.
   try {
     await ensureRuntimeState();
     if (request.type === "JUSTSNAP_TOGGLE_RAIL") {
-      const tab = sender.tab ?? (await getActiveTab());
+      const tab = await getRequestTargetTab(sender);
       if (!tab?.id) return { ok: false, error: "No active tab available." };
       if (isRestrictedTabUrl(tab.url)) return { ok: false, error: restrictedPageMessage(tab.url) };
       await toggleRailForTab(tab);
@@ -151,12 +151,12 @@ async function handleMessage(request: BackgroundRequest, sender: chrome.runtime.
     }
 
     if (request.type === "JUSTSNAP_START_CAPTURE_ACTIVE") {
-      const session = await startCaptureOnTab(sender.tab ?? (await getActiveTab()), request.addTarget);
+      const session = await startCaptureOnTab(await getRequestTargetTab(sender), request.addTarget);
       return { ok: true, data: session };
     }
 
     if (request.type === "JUSTSNAP_PREPARE_CAPTURE_SESSION") {
-      const session = await prepareCaptureSession(sender.tab ?? (await getActiveTab()), request.addTarget);
+      const session = await prepareCaptureSession(await getRequestTargetTab(sender), request.addTarget);
       return { ok: true, data: session };
     }
 
@@ -228,6 +228,11 @@ async function handleMessage(request: BackgroundRequest, sender: chrome.runtime.
 async function getActiveTab(): Promise<chrome.tabs.Tab | undefined> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab;
+}
+
+async function getRequestTargetTab(sender: chrome.runtime.MessageSender): Promise<chrome.tabs.Tab | undefined> {
+  if (sender.tab?.id && !isRestrictedTabUrl(sender.tab.url)) return sender.tab;
+  return getActiveTab();
 }
 
 async function toggleRailForTab(tab: chrome.tabs.Tab): Promise<void> {

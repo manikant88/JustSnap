@@ -18,6 +18,8 @@ export const styles = `
     --docksnip-insertion-fill: #fff;
     --docksnip-insertion-keyline: rgba(5, 5, 6, 0.72);
     --docksnip-insertion-shadow: rgba(5, 5, 6, 0.28);
+    --docksnip-hover-halo: rgba(255, 255, 255, 0.1);
+    --docksnip-hover-shadow: rgba(3, 7, 18, 0.36);
     --docksnip-success-background: #168642;
     --docksnip-success-hover: #1a9950;
     --docksnip-success-active: #127038;
@@ -524,10 +526,17 @@ export const styles = `
   .justsnap-dock-slot-hovered > .justsnap-dock-image-button {
     border: 0;
     box-shadow:
-      0 0 0 2px color-mix(in srgb, var(--docksnip-active-accent) 92%, transparent),
-      0 14px 30px rgba(3, 7, 18, 0.26);
+      0 0 22px var(--docksnip-hover-halo),
+      0 18px 36px var(--docksnip-hover-shadow);
     filter: saturate(1.04) brightness(1.02);
     z-index: 2;
+  }
+  .justsnap-dock-image-button:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px var(--docksnip-active-accent),
+      0 0 0 5px color-mix(in srgb, var(--docksnip-active-accent) 20%, transparent),
+      0 18px 36px var(--docksnip-hover-shadow);
   }
   .justsnap-drop-create-folder > .justsnap-dock-image-button,
   .justsnap-drop-add-folder > .justsnap-dock-folder-button,
@@ -591,8 +600,17 @@ export const styles = `
   .justsnap-dock-slot-hovered > .justsnap-dock-folder-button {
     border-color: transparent !important;
     background: var(--docksnip-folder-surface, #1a2029) !important;
-    box-shadow: 0 0 0 2px var(--docksnip-folder-border, rgba(255, 255, 255, 0.9)), 0 14px 30px rgba(3, 7, 18, 0.28);
+    box-shadow:
+      0 0 22px var(--docksnip-hover-halo),
+      0 18px 36px var(--docksnip-hover-shadow);
     z-index: 2;
+  }
+  .justsnap-dock-folder-button:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px var(--docksnip-active-accent),
+      0 0 0 5px color-mix(in srgb, var(--docksnip-active-accent) 20%, transparent),
+      0 18px 36px var(--docksnip-hover-shadow);
   }
   .justsnap-dock-add-target-folder {
     border-color: var(--docksnip-active-accent) !important;

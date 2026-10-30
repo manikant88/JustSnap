@@ -22,6 +22,21 @@ async function showDock(worker: Worker, page: Page): Promise<void> {
   }, page.url());
 }
 
+async function toggleDockThroughBackground(context: BrowserContext, worker: Worker, targetPage: Page): Promise<void> {
+  const extensionId = new URL(worker.url()).host;
+  const extensionPage = await context.newPage();
+  try {
+    await extensionPage.goto(`chrome-extension://${extensionId}/options.html`);
+    await targetPage.bringToFront();
+    const response = await extensionPage.evaluate(async () =>
+      chrome.runtime.sendMessage({ type: "JUSTSNAP_TOGGLE_RAIL" })
+    );
+    expect(response).toMatchObject({ ok: true });
+  } finally {
+    await extensionPage.close();
+  }
+}
+
 async function sendToPage(worker: Worker, page: Page, message: unknown): Promise<void> {
   await worker.evaluate(async ({ url, message }) => {
     const [tab] = await chrome.tabs.query({ url });
@@ -180,10 +195,7 @@ test("preserves an active folder destination when switching tabs", async () => {
     let [serviceWorker] = context.serviceWorkers();
     serviceWorker ??= await context.waitForEvent("serviceworker");
     const firstPage = await openTestPage(context, "https://add-first.docksnip.test/");
-    await firstPage.bringToFront();
-    await serviceWorker.evaluate(async () => {
-      await chrome.runtime.sendMessage({ type: "JUSTSNAP_TOGGLE_RAIL" });
-    });
+    await toggleDockThroughBackground(context, serviceWorker, firstPage);
     await expect(firstPage.locator("#justsnap-root")).toBeAttached();
     await firstPage.getByRole("button", { name: "Add Folder" }).click();
     await expect(firstPage.getByText("Adding to folder", { exact: true })).toBeVisible();
@@ -800,6 +812,7 @@ test("closes a populated folder flyout over Dock controls and undoes destructive
 });
 
 test("persists Folders, supports undo and keyboard input, and keeps crowded Docks overflow-visible", async () => {
+  test.setTimeout(60_000);
   const context = await chromium.launchPersistentContext("", {
     channel: "chromium",
     headless: true,
@@ -892,6 +905,8 @@ test("persists Folders, supports undo and keyboard input, and keeps crowded Dock
     for (let expectedCount = 2; expectedCount <= 20; expectedCount += 1) {
       await createFolder.click();
       await expect(folders).toHaveCount(expectedCount);
+      await secondPage.keyboard.press("Enter");
+      await expect(createFolder).toBeEnabled();
     }
     const overflow = await secondPage.locator("#justsnap-root").evaluate((host) => {
       const library = host.shadowRoot?.querySelector(".justsnap-library");
