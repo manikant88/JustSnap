@@ -112,7 +112,7 @@ function mountRail(message?: ContentMessage) {
     root = createRoot(app);
   }
   root?.render(
-    <DockSnipApp
+    <DocksnipApp
       command={
         message?.type === "JUSTSNAP_START_CAPTURE"
           ? { id: ++commandId, type: "start_capture", session: message }
@@ -148,7 +148,7 @@ function unmountRail() {
   host = undefined;
 }
 
-function DockSnipApp({ command }: { command?: ContentCommand }) {
+function DocksnipApp({ command }: { command?: ContentCommand }) {
   const notificationSequenceRef = useRef(0);
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [groups, setGroups] = useState<CaptureGroup[]>([]);
@@ -346,7 +346,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
       const dropOptions = {
         hasPendingPayload: Boolean(pendingDragPayload.current),
         isTrusted: event.isTrusted,
-        isDockSnipTarget: Boolean(targetNode && isDockSnipNode(targetNode))
+        isDocksnipTarget: Boolean(targetNode && isDocksnipNode(targetNode))
       };
       if (!shouldSuppressNativePageDrop({
         ...dropOptions
@@ -757,9 +757,9 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
     if (!payload || !point) return;
 
     const target = elementAtPoint(point);
-    if (!target || isDockSnipNode(target)) return;
+    if (!target || isDocksnipNode(target)) return;
 
-    const result = await placeFilesInCurrentPage(payload.files, { currentOrigin, isDockSnipNode }, target);
+    const result = await placeFilesInCurrentPage(payload.files, { currentOrigin, isDocksnipNode }, target);
     if (!result.ok) {
       setError(result.error);
       return;
@@ -1019,7 +1019,7 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
         setPageImageAffordance(null);
         return;
       }
-      if (target instanceof Node && isDockSnipNode(target)) return;
+      if (target instanceof Node && isDocksnipNode(target)) return;
       latestPointer = { x: event.clientX, y: event.clientY };
       if (!pointerFrame) pointerFrame = window.requestAnimationFrame(inspectPointer);
     };
@@ -1421,7 +1421,7 @@ function ToolbarActions({
   onClose: () => void;
 }) {
   return (
-    <div className="justsnap-toolbar-actions" role="group" aria-label="DockSnip controls">
+    <div className="justsnap-toolbar-actions" role="group" aria-label="Docksnip controls">
       <button
         className="justsnap-toolbar-icon-button justsnap-capture-close"
         aria-label={`Close ${shortcutModifier} ⇧ X`}
@@ -1497,7 +1497,7 @@ function cacheCaptureBlobs(
 }
 
 function pageImageTargetAtPoint(x: number, y: number): PageImageTarget | undefined {
-  const rawStack = deepElementsFromPoint(x, y).filter((element) => !isDockSnipNode(element));
+  const rawStack = deepElementsFromPoint(x, y).filter((element) => !isDocksnipNode(element));
   const visualLayer = activeVisualLayer(rawStack);
   const stack = visualLayer ? rawStack.filter((element) => isWithinLayer(element, visualLayer)) : rawStack;
   for (const element of stack) {
@@ -1527,7 +1527,7 @@ function pageImageTargetAtPoint(x: number, y: number): PageImageTarget | undefin
 }
 
 function pageImageTargetForElement(element: HTMLElement, imageUrl: string): PageImageTarget | undefined {
-  if (!imageUrl || isDockSnipNode(element) || !/^(https?:|data:image\/)/i.test(imageUrl)) return undefined;
+  if (!imageUrl || isDocksnipNode(element) || !/^(https?:|data:image\/)/i.test(imageUrl)) return undefined;
   const style = window.getComputedStyle(element);
   if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0) return undefined;
   const rect = element instanceof HTMLImageElement
@@ -1670,7 +1670,7 @@ function pageImageAffordanceStyle(rect: Rect): React.CSSProperties {
   };
 }
 
-function isDockSnipNode(node: Node): boolean {
+function isDocksnipNode(node: Node): boolean {
   if (!host) return false;
   if (node === host || host.contains(node)) return true;
   const rootNode = node.getRootNode();
@@ -1687,7 +1687,7 @@ function elementAtPoint(point: Point): Element | undefined {
 
 async function sendBackground<T = unknown>(request: BackgroundRequest): Promise<T> {
   const response = await chrome.runtime.sendMessage<BackgroundRequest, BackgroundResponse<T>>(request);
-  if (!response?.ok) throw new Error(response?.error ?? "DockSnip request failed.");
+  if (!response?.ok) throw new Error(response?.error ?? "Docksnip request failed.");
   return response.data;
 }
 

@@ -8,7 +8,7 @@ async function openTestPage(context: BrowserContext, url: string, body = "<main>
   const page = await context.newPage();
   await page.route(url, (route) => route.fulfill({
     contentType: "text/html",
-    body: `<!doctype html><title>DockSnip test page</title>${body}`
+    body: `<!doctype html><title>Docksnip test page</title>${body}`
   }));
   await page.goto(url);
   return page;
@@ -17,7 +17,7 @@ async function openTestPage(context: BrowserContext, url: string, body = "<main>
 async function showDock(worker: Worker, page: Page): Promise<void> {
   await worker.evaluate(async (url) => {
     const [tab] = await chrome.tabs.query({ url });
-    if (!tab?.id) throw new Error("DockSnip test tab was not found.");
+    if (!tab?.id) throw new Error("Docksnip test tab was not found.");
     await chrome.tabs.sendMessage(tab.id, { type: "JUSTSNAP_SHOW_RAIL" });
   }, page.url());
 }
@@ -40,7 +40,7 @@ async function toggleDockThroughBackground(context: BrowserContext, worker: Work
 async function sendToPage(worker: Worker, page: Page, message: unknown): Promise<void> {
   await worker.evaluate(async ({ url, message }) => {
     const [tab] = await chrome.tabs.query({ url });
-    if (!tab?.id) throw new Error("DockSnip test tab was not found.");
+    if (!tab?.id) throw new Error("Docksnip test tab was not found.");
     await chrome.tabs.sendMessage(tab.id, message);
   }, { url: page.url(), message });
 }
@@ -109,7 +109,7 @@ test("renders the toolbar identity and an unfilled Close control", async () => {
     await expect(page.getByRole("button", { name: "Snip it" })).toHaveCSS("font-weight", "600");
     const toolbarPlacement = await page.locator("#justsnap-root").evaluate((host) => {
       const toolbar = host.shadowRoot?.querySelector(".justsnap-capture-toolbar")?.getBoundingClientRect();
-      if (!toolbar) throw new Error("DockSnip toolbar was not rendered.");
+      if (!toolbar) throw new Error("Docksnip toolbar was not rendered.");
       return { top: toolbar.top, bottom: toolbar.bottom, viewportHeight: window.innerHeight };
     });
     expect(toolbarPlacement.viewportHeight - toolbarPlacement.bottom).toBeCloseTo(60, 0);
@@ -234,7 +234,7 @@ test("uses a compact drag preview and releases hover while dragging", async () =
     await page.mouse.up();
     await page.getByTitle("Done snipping (Enter)").click();
 
-    const capture = page.getByRole("button", { name: "DockSnip capture" });
+    const capture = page.getByRole("button", { name: "Docksnip capture" });
     await page.mouse.move(20, 20);
     await expect(page.locator(".justsnap-dock-slot-hovered")).toHaveCount(0);
     await page.waitForTimeout(250);
@@ -312,7 +312,7 @@ test("previews folder creation transactionally before committing the drop", asyn
     await page.mouse.up();
     await page.getByTitle("Done snipping (Enter)").click();
 
-    const captures = page.getByRole("button", { name: "DockSnip capture" });
+    const captures = page.getByRole("button", { name: "Docksnip capture" });
     await expect(captures).toHaveCount(2);
     await captures.nth(1).hover();
     await expect.poll(() => captures.nth(1).getAttribute("draggable")).toBe("true");
@@ -333,7 +333,7 @@ test("previews folder creation transactionally before committing the drop", asyn
     const targetSlot = page.locator(
       `[data-docksnip-rail-kind="capture"][data-docksnip-rail-id="${initialIds[0]}"]`
     );
-    const targetBox = await targetSlot.getByRole("button", { name: "DockSnip capture" }).boundingBox();
+    const targetBox = await targetSlot.getByRole("button", { name: "Docksnip capture" }).boundingBox();
     if (!targetBox) throw new Error("Folder preview target has no layout box.");
     await page.mouse.move(
       targetBox.x + targetBox.width - 4,
@@ -367,7 +367,7 @@ test("previews folder creation transactionally before committing the drop", asyn
     await expect(previewFlyout).toHaveCount(0);
     await expect(railSlots).toHaveCount(2);
 
-    const restoredTargetBox = await targetSlot.getByRole("button", { name: "DockSnip capture" }).boundingBox();
+    const restoredTargetBox = await targetSlot.getByRole("button", { name: "Docksnip capture" }).boundingBox();
     if (!restoredTargetBox) throw new Error("Restored folder preview target has no layout box.");
     await page.mouse.move(
       restoredTargetBox.x + restoredTargetBox.width - 4,
@@ -460,7 +460,7 @@ test("previews adding a capture to an existing folder before committing the drop
     await page.mouse.move(620, 120);
     await expect(page.getByLabel("Folder captures")).toHaveCount(0);
 
-    const source = page.getByRole("button", { name: "DockSnip capture" });
+    const source = page.getByRole("button", { name: "Docksnip capture" });
     await expect(source).toHaveCount(1);
     const sourceId = await page.locator('[data-docksnip-rail-kind="capture"]').getAttribute("data-docksnip-rail-id");
     const compactSourceBox = await source.boundingBox();
@@ -825,13 +825,13 @@ test("persists Folders, supports undo and keyboard input, and keeps crowded Dock
   try {
     let [serviceWorker] = context.serviceWorkers();
     serviceWorker ??= await context.waitForEvent("serviceworker");
-    expect(await serviceWorker.evaluate(() => chrome.runtime.getManifest().name)).toBe("DockSnip");
+    expect(await serviceWorker.evaluate(() => chrome.runtime.getManifest().name)).toBe("Docksnip");
     const extensionId = new URL(serviceWorker.url()).host;
 
     const firstPage = await openTestPage(context, "https://first.docksnip.test/");
     const optionsPage = await context.newPage();
     await optionsPage.goto(`chrome-extension://${extensionId}/options.html`);
-    await expect(optionsPage.getByRole("heading", { name: "DockSnip" })).toBeVisible();
+    await expect(optionsPage.getByRole("heading", { name: "Docksnip" })).toBeVisible();
     await expect(optionsPage.getByText("Captures", { exact: true })).toBeVisible();
     await showDock(serviceWorker, firstPage);
 
@@ -887,7 +887,7 @@ test("persists Folders, supports undo and keyboard input, and keeps crowded Dock
       const shadow = host.shadowRoot;
       const toolbar = shadow?.querySelector(".justsnap-capture-toolbar")?.getBoundingClientRect();
       const notice = shadow?.querySelector(".justsnap-toolbar-notice")?.getBoundingClientRect();
-      if (!toolbar || !notice) throw new Error("DockSnip toolbar surfaces were not rendered.");
+      if (!toolbar || !notice) throw new Error("Docksnip toolbar surfaces were not rendered.");
       return {
         toolbar: { width: toolbar.width, height: toolbar.height },
         notice: { width: notice.width, height: notice.height, bottom: notice.bottom },
@@ -910,7 +910,7 @@ test("persists Folders, supports undo and keyboard input, and keeps crowded Dock
     }
     const overflow = await secondPage.locator("#justsnap-root").evaluate((host) => {
       const library = host.shadowRoot?.querySelector(".justsnap-library");
-      if (!(library instanceof HTMLElement)) throw new Error("DockSnip library was not rendered.");
+      if (!(library instanceof HTMLElement)) throw new Error("Docksnip library was not rendered.");
       const style = getComputedStyle(library);
       return { x: style.overflowX, y: style.overflowY, maxHeight: style.maxHeight };
     });
@@ -955,7 +955,7 @@ test("keeps the side Dock and capture toolbar visible while taking a screenshot"
 
     await page.locator("#justsnap-root").evaluate((host) => {
       const shadow = host.shadowRoot;
-      if (!shadow) throw new Error("DockSnip shadow root was not rendered.");
+      if (!shadow) throw new Error("Docksnip shadow root was not rendered.");
       const hiddenTransitions: string[] = [];
       const recordHiddenState = () => {
         for (const selector of [".justsnap-rail", ".justsnap-capture-toolbar"]) {
@@ -980,7 +980,7 @@ test("keeps the side Dock and capture toolbar visible while taking a screenshot"
     await page.mouse.down();
     await page.mouse.move(320, 260, { steps: 4 });
     await page.mouse.up();
-    await expect(page.getByRole("button", { name: "DockSnip capture" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Docksnip capture" })).toBeVisible();
 
     const hiddenTransitions = await page.evaluate(
       () => (window as typeof window & { __docksnipHiddenTransitions?: string[] }).__docksnipHiddenTransitions ?? []

@@ -35,7 +35,7 @@ chrome.runtime.onMessage.addListener((rawMessage: unknown, sender, sendResponse)
     .catch((error) =>
       sendResponse({
         ok: false,
-        error: error instanceof Error ? error.message : "Could not crop DockSnip capture."
+        error: error instanceof Error ? error.message : "Could not crop Docksnip capture."
       })
     );
   return true;

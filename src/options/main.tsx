@@ -10,16 +10,16 @@ function OptionsApp() {
   useEffect(() => {
     sendBackground<LibraryState>({ type: "JUSTSNAP_GET_LIBRARY" })
       .then(setLibrary)
-      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Could not load DockSnip data."));
+      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Could not load Docksnip data."));
   }, []);
 
   return (
     <main>
       <section>
-        <h1>DockSnip</h1>
+        <h1>Docksnip</h1>
         <p>
-          DockSnip stores screenshots and docked images locally in this Chrome profile. Your images are not uploaded to a
-          DockSnip server.
+          Docksnip stores screenshots and docked images locally in this Chrome profile. Your images are not uploaded to a
+          Docksnip server.
         </p>
         {library && (
           <dl>
@@ -41,7 +41,7 @@ function OptionsApp() {
 
 async function sendBackground<T = unknown>(request: BackgroundRequest): Promise<T> {
   const response = await chrome.runtime.sendMessage<BackgroundRequest, BackgroundResponse<T>>(request);
-  if (!response?.ok) throw new Error(response?.error ?? "DockSnip request failed.");
+  if (!response?.ok) throw new Error(response?.error ?? "Docksnip request failed.");
   return response.data;
 }
 

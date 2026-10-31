@@ -11,7 +11,7 @@ test.beforeAll(async () => {
     bundle: true,
     platform: "browser",
     format: "iife",
-    globalName: "DockSnipClipboard",
+    globalName: "DocksnipClipboard",
     logLevel: "silent"
   });
 });
@@ -45,8 +45,8 @@ test("copies a JPEG capture as a PNG clipboard image", async ({ context, page })
         "image/jpeg"
       ));
       const api = (window as typeof window & {
-        DockSnipClipboard: { copyFilesToClipboard(files: File[]): Promise<boolean> };
-      }).DockSnipClipboard;
+        DocksnipClipboard: { copyFilesToClipboard(files: File[]): Promise<boolean> };
+      }).DocksnipClipboard;
       const ok = await api.copyFilesToClipboard([
         new File([jpeg], "image.jpg", { type: "image/jpeg" })
       ]);

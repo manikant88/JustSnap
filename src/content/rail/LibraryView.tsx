@@ -823,7 +823,7 @@ function CaptureDockItem(props: {
             width: frame.width,
             height: frame.height
           }}
-          aria-label="DockSnip capture"
+          aria-label="Docksnip capture"
           aria-disabled={props.muted || undefined}
           tabIndex={props.muted ? -1 : undefined}
           draggable={!props.muted && (props.presentationOnly || props.deliveryReady)}

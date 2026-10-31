@@ -2,7 +2,7 @@
 
 ## Direction
 
-Keep the browser extension as DockSnip's first-release capture and collection surface. Explore a macOS companion after launch rather than replacing the extension or immediately building separate macOS, Windows, and Linux products.
+Keep the browser extension as Docksnip's first-release capture and collection surface. Explore a macOS companion after launch rather than replacing the extension or immediately building separate macOS, Windows, and Linux products.
 
 The extension is the lowest-friction way to dock webpage images and capture browser content. A native companion would address the browser's weakest boundary: reliable delivery into desktop applications and complex browser editors through operating-system clipboard types, file URLs, and file promises.
 

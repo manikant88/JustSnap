@@ -18,7 +18,7 @@ export function decodeLibraryStorage(stored: Record<string, unknown>): {
 } {
   const storedVersion = stored[LIBRARY_STORAGE_KEYS.schemaVersion];
   if (isFiniteNumber(storedVersion) && storedVersion > LIBRARY_SCHEMA_VERSION) {
-    throw new Error("DockSnip data was written by a newer version of the extension.");
+    throw new Error("Docksnip data was written by a newer version of the extension.");
   }
   const activeDockId = stored[LIBRARY_STORAGE_KEYS.activeDock];
   const rawCaptures = arrayAt(stored, LIBRARY_STORAGE_KEYS.captures);

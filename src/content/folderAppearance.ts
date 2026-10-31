@@ -7,7 +7,7 @@ export type FolderTone = {
 
 // Six strongly differentiated primary colors followed by six overflow colors.
 // The order is adapted from IBM Carbon's categorical palette for neighboring
-// contrast while keeping DockSnip's resting surfaces quieter than its borders.
+// contrast while keeping Docksnip's resting surfaces quieter than its borders.
 export const FOLDER_TONE_NAMES = [
   "purple",
   "cyan",

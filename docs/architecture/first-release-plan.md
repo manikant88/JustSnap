@@ -1,4 +1,4 @@
-# DockSnip first-release architecture plan
+# Docksnip first-release architecture plan
 
 ## Architectural objective
 

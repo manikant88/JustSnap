@@ -11,7 +11,7 @@ test.beforeAll(async () => {
     bundle: true,
     platform: "browser",
     format: "iife",
-    globalName: "DockSnipPageInsert",
+    globalName: "DocksnipPageInsert",
     logLevel: "silent"
   });
 });
@@ -35,20 +35,20 @@ test("delivers a two-image Folder to an attachment input exactly once", async ({
     input.addEventListener("change", recordAttachments);
 
     const api = (window as typeof window & {
-      DockSnipPageInsert: {
+      DocksnipPageInsert: {
         placeFilesInCurrentPage(
           files: File[],
-          environment: { currentOrigin(): string; isDockSnipNode(node: Node): boolean },
+          environment: { currentOrigin(): string; isDocksnipNode(node: Node): boolean },
           preferredTarget?: Element
         ): Promise<{ ok: boolean }>;
       };
-    }).DockSnipPageInsert;
+    }).DocksnipPageInsert;
     const result = await api.placeFilesInCurrentPage(
       [
         new File(["first"], "first.png", { type: "image/png" }),
         new File(["second"], "second.png", { type: "image/png" })
       ],
-      { currentOrigin: () => "https://chatgpt.com", isDockSnipNode: () => false },
+      { currentOrigin: () => "https://chatgpt.com", isDocksnipNode: () => false },
       document.body
     );
     return { result, attachmentNames };
@@ -89,17 +89,17 @@ test("uses ChatGPT's drop zone instead of its duplicating hidden file input", as
     });
 
     const api = (window as typeof window & {
-      DockSnipPageInsert: {
+      DocksnipPageInsert: {
         placeFilesInCurrentPage(
           files: File[],
-          environment: { currentOrigin(): string; isDockSnipNode(node: Node): boolean },
+          environment: { currentOrigin(): string; isDocksnipNode(node: Node): boolean },
           preferredTarget?: Element
         ): Promise<{ ok: boolean }>;
       };
-    }).DockSnipPageInsert;
+    }).DocksnipPageInsert;
     const result = await api.placeFilesInCurrentPage(
       files,
-      { currentOrigin: () => "https://chatgpt.com", isDockSnipNode: () => false },
+      { currentOrigin: () => "https://chatgpt.com", isDocksnipNode: () => false },
       composer
     );
     return { result, attachmentNames };

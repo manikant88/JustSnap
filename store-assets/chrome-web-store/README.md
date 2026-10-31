@@ -1,4 +1,4 @@
-# DockSnip Chrome Web Store assets
+# Docksnip Chrome Web Store assets
 
 ## Recommended listing order
 
@@ -26,4 +26,4 @@
 
 ## Source treatment
 
-The listing screenshots were created from the supplied DockSnip captures. Personal browser chrome and distracting page details were reduced so the extension remains the focal point. The promotional images use the current DockSnip logomark and dock visual language.
+The listing screenshots were created from the supplied Docksnip captures. Personal browser chrome and distracting page details were reduced so the extension remains the focal point. The promotional images use the current Docksnip logomark and dock visual language.

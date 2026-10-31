@@ -118,7 +118,7 @@ chrome.runtime.onMessage.addListener((request: unknown, sender, sendResponse) =>
   void handleMessage(validatedRequest, sender).then(sendResponse, (error) => {
     sendResponse({
       ok: false,
-      error: error instanceof Error ? error.message : "DockSnip request failed."
+      error: error instanceof Error ? error.message : "Docksnip request failed."
     } satisfies BackgroundResponse);
   });
   return true;
@@ -216,11 +216,11 @@ async function handleMessage(request: BackgroundRequest, sender: chrome.runtime.
       return { ok: true, data: await mutateLibrary(request.mutation) };
     }
 
-    return { ok: false, error: "Unsupported DockSnip request." };
+    return { ok: false, error: "Unsupported Docksnip request." };
   } catch (error) {
     return {
       ok: false,
-      error: error instanceof Error ? error.message : "DockSnip request failed."
+      error: error instanceof Error ? error.message : "Docksnip request failed."
     };
   }
 }
@@ -397,7 +397,7 @@ async function cropWithOffscreen(
     rect,
     viewport
   });
-  if (!response?.ok) throw new Error(response?.error ?? "Could not crop DockSnip capture.");
+  if (!response?.ok) throw new Error(response?.error ?? "Could not crop Docksnip capture.");
   return response.data as OffscreenCropResult;
 }
 
@@ -407,7 +407,7 @@ async function prepareImageWithOffscreen(dataUrl: string): Promise<OffscreenPrep
     type: "JUSTSNAP_OFFSCREEN_PREPARE_IMAGE",
     dataUrl
   });
-  if (!response?.ok) throw new Error(response?.error ?? "Could not prepare DockSnip image.");
+  if (!response?.ok) throw new Error(response?.error ?? "Could not prepare Docksnip image.");
   return response.data as OffscreenPreparedImage;
 }
 
@@ -456,7 +456,7 @@ async function ensureOffscreenDocument(): Promise<void> {
   await chrome.offscreen.createDocument({
     url: "offscreen.html",
     reasons: [chrome.offscreen.Reason.BLOBS],
-    justification: "Prepare DockSnip image captures in a hidden canvas document."
+    justification: "Prepare Docksnip image captures in a hidden canvas document."
   });
 }
 
@@ -606,7 +606,7 @@ function isRestrictedTabUrl(url: string | undefined): boolean {
 
 function restrictedPageMessage(url: string | undefined): string {
   const scheme = url?.split(":")[0] || "this";
-  return `DockSnip cannot run on ${scheme}:// pages. Try it on a normal website tab.`;
+  return `Docksnip cannot run on ${scheme}:// pages. Try it on a normal website tab.`;
 }
 
 function validateBackgroundRequest(value: unknown, sender: chrome.runtime.MessageSender): BackgroundRequest | undefined {

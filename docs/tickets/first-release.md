@@ -1,4 +1,4 @@
-# DockSnip first-release ticket backlog
+# Docksnip first-release ticket backlog
 
 ## Implementation checkpoint — 2026-09-14
 

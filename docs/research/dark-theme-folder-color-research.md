@@ -1,15 +1,15 @@
 # Dark-theme folder color research
 
 **Research date:** 2026-09-17  
-**Product context:** Small DockSnip Folder tiles on a near-black Dock (`#050506`), with image thumbnails inside, neutral overlay controls, and a hover/focus-only border.
+**Product context:** Small Docksnip Folder tiles on a near-black Dock (`#050506`), with image thumbnails inside, neutral overlay controls, and a hover/focus-only border.
 
 ## Executive conclusion
 
-The strongest basis for DockSnip is a **categorical dark-theme palette**, not an evenly spaced color wheel and not twelve equally saturated brand colors. IBM Carbon's categorical sequence is the most directly relevant first-party precedent: it was designed for discrete, unrelated categories, for harmony within a page, and its order is explicitly curated to maximize contrast between neighboring colors. [IBM Carbon: color palettes](https://carbondesignsystem.com/data-visualization/color-palettes/)
+The strongest basis for Docksnip is a **categorical dark-theme palette**, not an evenly spaced color wheel and not twelve equally saturated brand colors. IBM Carbon's categorical sequence is the most directly relevant first-party precedent: it was designed for discrete, unrelated categories, for harmony within a page, and its order is explicitly curated to maximize contrast between neighboring colors. [IBM Carbon: color palettes](https://carbondesignsystem.com/data-visualization/color-palettes/)
 
 However, using twelve full-strength categorical colors as 52px Folder backgrounds would be unnecessarily loud beside arbitrary screenshot thumbnails. Adobe Spectrum recommends fewer than six categorical colors when possible and says twelve become extremely difficult to comprehend; it also warns that too much color can be visually overwhelming. [Adobe Spectrum: data-visualization color](https://spectrum.adobe.com/page/color-for-data-visualization/) [Adobe Spectrum: color system](https://spectrum.adobe.com/page/color-system/)
 
-For DockSnip, the best compromise is therefore:
+For Docksnip, the best compromise is therefore:
 
 1. Use a **six-color primary set** for the clearest early assignments.
 2. Keep six additional colors as an overflow set so all twelve slots remain unique before reuse.
@@ -27,7 +27,7 @@ Fluent similarly shifts shared colors in both saturation and brightness in dark 
 
 Carbon's dark-theme layering model makes each foreground layer one step lighter than its parent rather than making components darker than the background. [IBM Carbon: color overview](https://carbondesignsystem.com/elements/color/overview/)
 
-**DockSnip implication:** Folder surfaces should be clearly lighter than `#050506`, but they do not need to glow. A restrained chromatic surface plus a brighter interaction border creates separation without competing with the thumbnails.
+**Docksnip implication:** Folder surfaces should be clearly lighter than `#050506`, but they do not need to glow. A restrained chromatic surface plus a brighter interaction border creates separation without competing with the thumbnails.
 
 ### Side-by-side colors need a categorical sequence
 
@@ -35,7 +35,7 @@ Carbon defines categorical palettes for discrete categories with no inherent ord
 
 Spectrum likewise defines categorical colors as visually distinct and optimized for users with color-vision deficiencies, but advises using fewer than six when possible because comprehension becomes difficult at six and especially at twelve. [Adobe Spectrum: data-visualization color](https://spectrum.adobe.com/page/color-for-data-visualization/)
 
-**DockSnip implication:** Twelve unique slots are acceptable as progressive identity cues in a vertical Dock, but the first six should carry the strongest differentiation. A user should never have to compare all twelve or remember what a color means.
+**Docksnip implication:** Twelve unique slots are acceptable as progressive identity cues in a vertical Dock, but the first six should carry the strongest differentiation. A user should never have to compare all twelve or remember what a color means.
 
 ### Color cannot be the only identifier
 
@@ -43,17 +43,17 @@ WCAG 2.2 says color must not be the only visual means of distinguishing an eleme
 
 For visible component boundaries and state indicators, WCAG's non-text contrast guidance uses a 3:1 contrast ratio against adjacent colors. A boundary is not required when other visible content already identifies the control, but a sufficiently contrasting focus indicator is still needed. W3C also cautions that thin lines can render with less apparent contrast than their nominal value. [W3C: Non-text Contrast](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast)
 
-**DockSnip implication:** The Folder's thumbnails and accessible name/role remain its identifiers. The hover/focus border should be treated as an interaction indicator and should target at least 3:1 against both the Folder surface and adjacent Dock. Because it is only 1px, choose a value comfortably above the minimum rather than one that barely passes.
+**Docksnip implication:** The Folder's thumbnails and accessible name/role remain its identifiers. The hover/focus border should be treated as an interaction indicator and should target at least 3:1 against both the Folder surface and adjacent Dock. Because it is only 1px, choose a value comfortably above the minimum rather than one that barely passes.
 
 ### Neutral controls should remain neutral over colored tiles
 
 Apple advises avoiding similar control-label colors over colorful content and prefers monochromatic controls when the background is visually rich. Spectrum uses neutral grays to avoid chromatic adaptation and simultaneous-contrast problems, and reserves static black or white overlays for colored backgrounds according to whichever provides adequate contrast. [Apple HIG: Color](https://developer.apple.com/design/human-interface-guidelines/color) [Adobe Spectrum: color system](https://spectrum.adobe.com/page/color-system/) [Adobe Spectrum: using color](https://spectrum.adobe.com/page/using-color/)
 
-**DockSnip implication:** Keep add/delete controls on the current dark neutral circular surface with white icons. Do not tint those controls per Folder; the Folder surface is already the identity cue.
+**Docksnip implication:** Keep add/delete controls on the current dark neutral circular surface with white icons. Do not tint those controls per Folder; the Folder surface is already the identity cue.
 
 ## Recommended 12-color palette
 
-This proposal derives its hue families and ordering from Carbon's dark categorical palette, then uses darker opaque surfaces for DockSnip's resting state. The bright values are reserved for the hover/focus border. This is a DockSnip adaptation—not a claim that the derived surface hex values are Carbon tokens.
+This proposal derives its hue families and ordering from Carbon's dark categorical palette, then uses darker opaque surfaces for Docksnip's resting state. The bright values are reserved for the hover/focus border. This is a Docksnip adaptation—not a claim that the derived surface hex values are Carbon tokens.
 
 | Slot | Family | Default surface | Hover/focus border | Set |
 |---:|---|---|---|---|
@@ -102,6 +102,6 @@ This proposal derives its hue families and ordering from Carbon's dark categoric
 Prototype this palette as a reversible design token set before restoring colors in the release UI. Review two variants side by side:
 
 - **Recommended:** all twelve available, with the first six assigned first and the overflow six used only when needed.
-- **Quieter fallback:** cycle only the six primary surfaces, then reuse them; this follows Spectrum's perceptual guidance more closely and may be more coherent at DockSnip's small tile size.
+- **Quieter fallback:** cycle only the six primary surfaces, then reuse them; this follows Spectrum's perceptual guidance more closely and may be more coherent at Docksnip's small tile size.
 
 Do not choose the final palette from a swatch sheet alone. The deciding artifact should be a realistic Dock containing mixed screenshots, compacted tiles, hover/focus states, and at least one empty Folder.

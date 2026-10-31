@@ -43,7 +43,7 @@ function openDb(): Promise<IDBDatabase> {
     };
     request.onerror = () => {
       databasePromise = undefined;
-      reject(request.error ?? new Error("Could not open DockSnip image store."));
+      reject(request.error ?? new Error("Could not open Docksnip image store."));
     };
     request.onsuccess = () => {
       request.result.onversionchange = () => {
@@ -65,12 +65,12 @@ function runStoreRequest<T>(
     const transaction = db.transaction(STORE_NAME, mode);
     const request = operation(transaction.objectStore(STORE_NAME));
     let result: T;
-    request.onerror = () => reject(request.error ?? new Error("DockSnip image store request failed."));
+    request.onerror = () => reject(request.error ?? new Error("Docksnip image store request failed."));
     request.onsuccess = () => {
       result = request.result;
     };
-    transaction.onerror = () => reject(transaction.error ?? new Error("DockSnip image store transaction failed."));
-    transaction.onabort = () => reject(transaction.error ?? new Error("DockSnip image store transaction was cancelled."));
+    transaction.onerror = () => reject(transaction.error ?? new Error("Docksnip image store transaction failed."));
+    transaction.onabort = () => reject(transaction.error ?? new Error("Docksnip image store transaction was cancelled."));
     transaction.oncomplete = () => resolve(result);
   });
 }

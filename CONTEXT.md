@@ -1,11 +1,11 @@
-# DockSnip
+# Docksnip
 
-DockSnip is a temporary visual staging area for moving images from their source into a browser-based destination without creating download clutter or a permanent image library.
+Docksnip is a temporary visual staging area for moving images from their source into a browser-based destination without creating download clutter or a permanent image library.
 
 ## Language
 
 **Visual Clipboard**:
-The product category DockSnip occupies: a visible, persistent-until-discarded staging surface for one or more images that may be copied repeatedly into other places.
+The product category Docksnip occupies: a visible, persistent-until-discarded staging surface for one or more images that may be copied repeatedly into other places.
 _Avoid_: Screenshot manager, image library, asset manager
 
 **Dock**:
@@ -25,11 +25,11 @@ An application or input where a user attempts to place one capture or a Folder.
 _Avoid_: Storage location, archive
 
 **Delivery**:
-The placement of every requested capture into a Destination's upload or composition interface. Sending, publishing, or submitting those captures is outside DockSnip.
+The placement of every requested capture into a Destination's upload or composition interface. Sending, publishing, or submitting those captures is outside Docksnip.
 _Avoid_: Send, publish, submit
 
 **Delivery Attempt**:
-A user-initiated drag or copy toward a Destination. DockSnip does not infer from an attempt that the Destination accepted the captures.
+A user-initiated drag or copy toward a Destination. Docksnip does not infer from an attempt that the Destination accepted the captures.
 _Avoid_: Used, delivered, completed
 
 **Discard**:

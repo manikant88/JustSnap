@@ -1,19 +1,19 @@
-# DockSnip market and user research
+# Docksnip market and user research
 
 **Research date:** 2026-09-14  
 **Product premise evaluated:** A free-first, local-first, account-free visual staging tool that lets people capture screen regions or collect webpage images, optionally place images into unnamed flat Folders, drag or copy an image or a whole Folder into another destination, and retain everything until explicit discard.
 
 ## Executive conclusion
 
-DockSnip should not choose WhatsApp, Figma, Jira, email, or AI chat as its identity. Those are destinations, and the same person may use several of them in one day. The strongest early-user definition is behavioral:
+Docksnip should not choose WhatsApp, Figma, Jira, email, or AI chat as its identity. Those are destinations, and the same person may use several of them in one day. The strongest early-user definition is behavioral:
 
 > **Browser-heavy visual knowledge workers who repeatedly move one or more screenshots or webpage images into another work surface and resent saving, finding, selecting, and cleaning up temporary files.**
 
 This includes designers gathering references, researchers feeding visual evidence to AI or documents, QA/support staff reporting defects, and operators or marketers sending image batches. They share a job-to-be-done—**stage visuals between capture and use**—even though their destinations differ.
 
-The opportunity is not “a better screenshot editor.” Native operating systems already make a single screenshot easy, and mature paid tools compete heavily on annotation, OCR, screen recording, beautification, history, and cloud sharing. DockSnip’s sharper wedge is the missing middle between capture and destination: a persistent, visible, disposable holding surface that supports both individual images and multi-image Folders.
+The opportunity is not “a better screenshot editor.” Native operating systems already make a single screenshot easy, and mature paid tools compete heavily on annotation, OCR, screen recording, beautification, history, and cloud sharing. Docksnip’s sharper wedge is the missing middle between capture and destination: a persistent, visible, disposable holding surface that supports both individual images and multi-image Folders.
 
-The closest conceptual competitors are therefore not only screenshot products but temporary drag shelves such as Dropover and Yoink. Dropover describes its core as collecting items on “a temporary shelf” and moving everything in one pass; Yoink describes itself as a temporary place for file drags. Their continued development and paid utility models are evidence that staging is a recognized job, while DockSnip’s screenshot-first, browser-native Folder flow is a distinct implementation of it. [Dropover](https://dropoverapp.com/) [Yoink](https://blog.eternalstorms.at/2026/08/03/yoink-for-mac-v3-7-6-improves-compatibility-with-browsers/)
+The closest conceptual competitors are therefore not only screenshot products but temporary drag shelves such as Dropover and Yoink. Dropover describes its core as collecting items on “a temporary shelf” and moving everything in one pass; Yoink describes itself as a temporary place for file drags. Their continued development and paid utility models are evidence that staging is a recognized job, while Docksnip’s screenshot-first, browser-native Folder flow is a distinct implementation of it. [Dropover](https://dropoverapp.com/) [Yoink](https://blog.eternalstorms.at/2026/08/03/yoink-for-mac-v3-7-6-improves-compatibility-with-browsers/)
 
 For the first release, keep **capture, collect, deliver, and discard** free and focused. Do not add naming, search, cloud sync, automatic cleanup, delivery-status semantics, or destination-specific product identity. First prove repeat usage and reliable transfer. Editing and artifact composition are plausible later paid adjacencies, but they should be earned through observed demand rather than assumed now.
 
@@ -21,7 +21,7 @@ For the first release, keep **capture, collect, deliver, and discard** free and 
 
 This report uses primary sources: official product pages, official pricing and help pages, platform documentation, and original vendor research. Prices are current as observed on 2026-09-14, in USD where the source publishes USD, and may exclude tax or vary by region.
 
-There is no independent behavioral dataset here that measures how often people save screenshots temporarily, how often they move multiple screenshots in one task, or how much time DockSnip would save. TechSmith’s research is original but vendor-sponsored and studies visual communication broadly, not DockSnip’s staging workflow. It supports the importance of visuals, but it does not prove product-market fit. All recommendations below labeled **Inference** or **Hypothesis** require validation with DockSnip users.
+There is no independent behavioral dataset here that measures how often people save screenshots temporarily, how often they move multiple screenshots in one task, or how much time Docksnip would save. TechSmith’s research is original but vendor-sponsored and studies visual communication broadly, not Docksnip’s staging workflow. It supports the importance of visuals, but it does not prove product-market fit. All recommendations below labeled **Inference** or **Hypothesis** require validation with Docksnip users.
 
 ## What user behavior is already established
 
@@ -31,7 +31,7 @@ Apple’s own screenshot interface shows a temporary floating thumbnail specific
 
 Windows similarly copies a new snip to the clipboard and documents immediate paste into another application; its Snipping Tool then offers annotation, save, and share actions. [Microsoft Snipping Tool documentation](https://support.microsoft.com/en-US/Windows/Apps/use-snipping-tool-to-capture-screenshots) [Microsoft 365 screenshot documentation](https://support.microsoft.com/en-us/office/copy-the-window-or-screen-contents)
 
-**Inference:** Immediate use is not an invented behavior that DockSnip must teach. The unresolved friction is that native overlays are short-lived and oriented around one capture, while DockSnip persists multiple captures and lets the user stage them as a batch.
+**Inference:** Immediate use is not an invented behavior that Docksnip must teach. The unresolved friction is that native overlays are short-lived and oriented around one capture, while Docksnip persists multiple captures and lets the user stage them as a batch.
 
 ### 2. Screenshots and images travel into many unrelated destinations
 
@@ -53,7 +53,7 @@ An earlier TechSmith experiment tested 125 people on real office tasks. Particip
 
 TechSmith also reports an internal analysis of its support tickets: tickets where agents used Snagit resolved with half as many touches as those without images. This is useful directional evidence for support and QA workflows, but it is a vendor’s own operational analysis and does not establish causation across other companies. [TechSmith customer-service analysis](https://www.techsmith.com/blog/improve-customer-service/)
 
-**Inference:** DockSnip does not need to persuade people that screenshots are useful. Its product claim should be about reducing handling friction around a behavior users already value.
+**Inference:** Docksnip does not need to persuade people that screenshots are useful. Its product claim should be about reducing handling friction around a behavior users already value.
 
 ## Best-fit early users
 
@@ -115,9 +115,9 @@ Snagit positions screenshots and screen recordings across IT/support, marketing,
 
 ### Native capture substitutes
 
-| Product | Official positioning and relevant behavior | Current price | Implication for DockSnip |
+| Product | Official positioning and relevant behavior | Current price | Implication for Docksnip |
 |---|---|---:|---|
-| macOS Screenshot | Captures screen/window/region; floating thumbnail can be dragged into a document, email, note, or Finder before save | Included with macOS | A single temporary capture is already free; DockSnip must win on persistence, collection, and batch delivery. [Source](https://support.apple.com/en-nz/guide/mac-help/mh26782/mac) |
+| macOS Screenshot | Captures screen/window/region; floating thumbnail can be dragged into a document, email, note, or Finder before save | Included with macOS | A single temporary capture is already free; Docksnip must win on persistence, collection, and batch delivery. [Source](https://support.apple.com/en-nz/guide/mac-help/mh26782/mac) |
 | Windows Snipping Tool | Captures, copies to clipboard, annotates, OCRs/redacts text locally, saves, and shares | Included with Windows | Basic capture, clipboard, markup, and OCR are commodity capabilities. [Source](https://support.microsoft.com/en-US/Windows/Apps/use-snipping-tool-to-capture-screenshots) |
 
 ### Screenshot products
@@ -125,20 +125,20 @@ Snagit positions screenshots and screen recordings across IT/support, marketing,
 | Product | Official positioning / relevant features | Current price | Strategic signal |
 |---|---|---:|---|
 | Shottr | Lightweight Mac screenshot tool for designers/developers; annotation, OCR, combine screenshots, pinned temporary storage, drag-out | Free indefinitely with prompts; Basic **$12 once**; Friends Club **$30 once** | Low-cost utility model works; temporary storage exists, but batching-to-arbitrary-destination is not the central product. [Features](https://www.shottr.cc/) [Pricing](https://www.shottr.cc/purchase.html) |
-| CleanShot X | Screenshot/recording suite with quick-access overlay, direct drag/drop, annotation, OCR, history, beautification, pinning, cloud | Basic **$35 once**, includes one year of updates; optional renewal **$19/year**. Pro **$10/user/month**, annually | Mature tools monetize enhancement, history, cloud, and teams. “One drag away” is already a competitor claim, so DockSnip must emphasize multi-item staging/Folders. [Features](https://cleanshot.com/screenshots) [Pricing](https://cleanshot.com/pricing) |
+| CleanShot X | Screenshot/recording suite with quick-access overlay, direct drag/drop, annotation, OCR, history, beautification, pinning, cloud | Basic **$35 once**, includes one year of updates; optional renewal **$19/year**. Pro **$10/user/month**, annually | Mature tools monetize enhancement, history, cloud, and teams. “One drag away” is already a competitor claim, so Docksnip must emphasize multi-item staging/Folders. [Features](https://cleanshot.com/screenshots) [Pricing](https://cleanshot.com/pricing) |
 | Snagit | Professional screen capture, markup, step guides, searchable library, quick sharing, and recording | Individual **$39/year** | Strong evidence for paid editing/documentation value, but its breadth and subscription/account model leave room for a lighter local utility. [Product](https://www.techsmith.com/snagit/) [Pricing](https://www.techsmith.com/store/snagit) |
 | Awesome Screenshot | Browser and desktop capture/recording, annotation, local saves, cloud history, and integrations | Free; Basic **$5/month annually**; Professional **$6/month annually** | Browser capture is crowded and basic local screenshots are free; cloud storage/recording/integrations drive subscriptions. [Product](https://www.awesomescreenshot.com/) [Pricing](https://www.awesomescreenshot.com/pricing) |
 | GoFullPage | Browser-native full-page capture with local PNG/PDF export; Premium adds editing, annotation, and smart PDF splitting | **$12/year** with a seven-day trial | A narrow browser capture tool can monetize transformations while leaving its core capture workflow free. [FAQ](https://gofullpage.com/faq) [Premium](https://gofullpage.com/premium) |
-| ScreenFloat 2 | Captures float above apps; drag-out sharing; editing, OCR, redaction, formats, Shots Browser, folders, search, iCloud | **$17.99 once** | Very close on persistent visual availability, but evolves into a permanent organized library. DockSnip should preserve the faster disposable mental model. [Product and pricing](https://www.eternalstorms.at/ScreenFloat/) [Drag/export](https://blog.eternalstorms.at/2024/06/14/get-to-know-screenfloat-2-part-v-share-drag-and-drop-link-sharing-export/) |
-| Xnapper | Fast beautified Mac screenshots with backgrounds, redaction, OCR, annotation, history, compression | Free with watermark; Basic **$29.99 once** with one year of updates | Visual polish and social-ready formatting support a paid upgrade, but they are an adjacency rather than DockSnip’s core. [Product](https://xnapper.com/) [Pricing](https://xnapper.com/de/pricing) |
+| ScreenFloat 2 | Captures float above apps; drag-out sharing; editing, OCR, redaction, formats, Shots Browser, folders, search, iCloud | **$17.99 once** | Very close on persistent visual availability, but evolves into a permanent organized library. Docksnip should preserve the faster disposable mental model. [Product and pricing](https://www.eternalstorms.at/ScreenFloat/) [Drag/export](https://blog.eternalstorms.at/2024/06/14/get-to-know-screenfloat-2-part-v-share-drag-and-drop-link-sharing-export/) |
+| Xnapper | Fast beautified Mac screenshots with backgrounds, redaction, OCR, annotation, history, compression | Free with watermark; Basic **$29.99 once** with one year of updates | Visual polish and social-ready formatting support a paid upgrade, but they are an adjacency rather than Docksnip’s core. [Product](https://xnapper.com/) [Pricing](https://xnapper.com/de/pricing) |
 
 ### Staging, shelf, and clipboard products
 
 | Product | Official positioning / relevant features | Current price | Strategic signal |
 |---|---|---:|---|
-| Dropover | Temporary shelf for files, links, text, and images; collect then move/share/process everything at once; actions include resize, OCR, ZIP, and uploads | Full 14-day trial; limited free mode afterward; Pro **$6.99 once** in the US Mac App Store | This is the closest job-level competitor. Its broad file handling validates the shelf metaphor; DockSnip can be faster and more opinionated for captured/collected images. [Product](https://dropoverapp.com/) [Purchase model](https://dropoverapp.com/kb/purchases) [US App Store](https://apps.apple.com/us/app/dropover-easier-drag-drop/id1355679052?mt=12) |
+| Dropover | Temporary shelf for files, links, text, and images; collect then move/share/process everything at once; actions include resize, OCR, ZIP, and uploads | Full 14-day trial; limited free mode afterward; Pro **$6.99 once** in the US Mac App Store | This is the closest job-level competitor. Its broad file handling validates the shelf metaphor; Docksnip can be faster and more opinionated for captured/collected images. [Product](https://dropoverapp.com/) [Purchase model](https://dropoverapp.com/kb/purchases) [US App Store](https://apps.apple.com/us/app/dropover-easier-drag-drop/id1355679052?mt=12) |
 | Yoink | Temporary place for file drags, including images from websites; appears during drag and can hold multiple items | **$8.99 once**, 28-day trial | Users pay modest one-time prices for reduced drag friction. Browser compatibility remains active maintenance work even for a native shelf. [Product/pricing](https://blog.eternalstorms.at/2026/08/03/yoink-for-mac-v3-7-6-improves-compatibility-with-browsers/) |
-| Paste | Persistent, searchable, synchronized clipboard history and pinboards across Apple devices | **$2.49/month** or **$29.99/year**; lifetime purchase available but current lifetime amount is not shown in the default page response | Clipboard history solves retrieval and reuse, not purposeful temporary batching. It is adjacent but points toward a permanent library—the direction DockSnip should initially avoid. [Product](https://pasteapp.io/) [Pricing](https://pasteapp.io/pricing) |
+| Paste | Persistent, searchable, synchronized clipboard history and pinboards across Apple devices | **$2.49/month** or **$29.99/year**; lifetime purchase available but current lifetime amount is not shown in the default page response | Clipboard history solves retrieval and reuse, not purposeful temporary batching. It is adjacent but points toward a permanent library—the direction Docksnip should initially avoid. [Product](https://pasteapp.io/) [Pricing](https://pasteapp.io/pricing) |
 
 ### Competitive gap
 
@@ -146,7 +146,7 @@ No reviewed product’s primary promise is exactly:
 
 > **Capture or collect several images, arrange them as a disposable visual batch, and drag the batch into the next place.**
 
-Dropover and Yoink own general temporary staging; CleanShot, Shottr, Snagit, ScreenFloat, and Xnapper own capture plus editing/history. DockSnip’s differentiation is the intersection:
+Dropover and Yoink own general temporary staging; CleanShot, Shottr, Snagit, ScreenFloat, and Xnapper own capture plus editing/history. Docksnip’s differentiation is the intersection:
 
 - screenshot and webpage-image native;
 - persistent but intentionally disposable;
@@ -194,7 +194,7 @@ The core—capture, collect, Folder, drag/copy, discard—should be free in the 
 
 ### Paid adjacency ranking
 
-| Opportunity | Evidence | Fit with DockSnip | Recommendation |
+| Opportunity | Evidence | Fit with Docksnip | Recommendation |
 |---|---|---|---|
 | **Focused editing and privacy tools**: crop, resize, annotate, arrows, blur/solid redaction | CleanShot, Snagit, Shottr, ScreenFloat, and Xnapper all foreground editing/annotation/redaction in paid products. [CleanShot](https://cleanshot.com/features) [Snagit](https://www.techsmith.com/snagit/) [Shottr](https://www.shottr.cc/) [ScreenFloat](https://blog.eternalstorms.at/2024/01/17/get-to-know-screenfloat-2-part-v-editing-markup-annotations/) [Xnapper](https://xnapper.com/) | High: transforms a staged image immediately before delivery without requiring a permanent library | **Highest-confidence paid hypothesis**, but begin with only the tasks users repeatedly request. |
 | **Folder composition/export**: contact sheet, ordered PDF, ZIP, image strip, lightweight report | Shottr combines screenshots; ScreenFloat exports screenshots as PDF and supports print/export; CleanShot combines images and supports multi-page printing; Dropover offers ZIP and image resize actions. [Shottr](https://www.shottr.cc/) [ScreenFloat export](https://blog.eternalstorms.at/2024/06/14/get-to-know-screenfloat-2-part-v-share-drag-and-drop-link-sharing-export/) [CleanShot features](https://cleanshot.com/features) [Dropover](https://dropoverapp.com/) | High if it is an action on a temporary Folder, low if it becomes a document-management suite | **Strong differentiated hypothesis.** Test “Export Folder as…” before building a report editor. |
@@ -203,13 +203,13 @@ The core—capture, collect, Folder, drag/copy, discard—should be free in the 
 | **OCR and text extraction** | Windows Snipping Tool provides local OCR for free; CleanShot, Shottr, ScreenFloat, and Xnapper also offer it. [Microsoft](https://support.microsoft.com/en-US/Windows/Apps/use-snipping-tool-to-capture-screenshots) | Useful but increasingly commoditized | Add only if users need it in-flow; weak as the sole reason to pay. |
 | **Scrolling/full-page capture** | CleanShot, Shottr, Snagit, and Awesome Screenshot compete here. | Useful capture expansion but not specific to staging | Consider after core reliability; avoid leading positioning with it. |
 | **Cloud links, sync, and teams** | CleanShot Pro charges for unlimited cloud, branding, access controls, SSO/SCIM; Awesome Screenshot subscriptions add cloud capacity and integrations; Paste sells sync and team pinboards. [CleanShot pricing](https://cleanshot.com/pricing) [Awesome Screenshot pricing](https://www.awesomescreenshot.com/pricing) [Paste Teams](https://pasteapp.io/teams) | Conflicts with account-free/local-first simplicity and adds service obligations | Defer until demand is explicit. If built, make it optional and separate from local capture. |
-| **Screen recording/video editing** | Snagit, CleanShot, and Awesome Screenshot bundle video/recording into paid plans. | Large market but major scope expansion | Explicit non-goal until DockSnip’s image workflow is stable and research strongly requests it. |
+| **Screen recording/video editing** | Snagit, CleanShot, and Awesome Screenshot bundle video/recording into paid plans. | Large market but major scope expansion | Explicit non-goal until Docksnip’s image workflow is stable and research strongly requests it. |
 
 ### Pricing inference
 
 One-time prices among focused Mac utilities in this set range from Dropover at $6.99, Yoink at $8.99, and Shottr Basic at $12 to ScreenFloat at $17.99, Xnapper Basic at $29.99, and CleanShot Basic at $35. Subscription products add cloud, collaboration, recording, or broader professional workflows. [Dropover](https://apps.apple.com/us/app/dropover-easier-drag-drop/id1355679052?mt=12) [Yoink](https://blog.eternalstorms.at/2026/08/03/yoink-for-mac-v3-7-6-improves-compatibility-with-browsers/) [Shottr](https://www.shottr.cc/purchase.html) [ScreenFloat](https://www.eternalstorms.at/ScreenFloat/) [Xnapper](https://xnapper.com/de/pricing) [CleanShot](https://cleanshot.com/pricing)
 
-**Hypothesis:** If DockSnip later adds a coherent local editing and Folder-export package, a **$19–35 one-time personal license** with optional paid major upgrades is market-consistent. The free core should remain unmetered; premium tools can receive a generous full-feature trial. Do not finalize price before willingness-to-pay interviews and a live pricing test.
+**Hypothesis:** If Docksnip later adds a coherent local editing and Folder-export package, a **$19–35 one-time personal license** with optional paid major upgrades is market-consistent. The free core should remain unmetered; premium tools can receive a generous full-feature trial. Do not finalize price before willingness-to-pay interviews and a live pricing test.
 
 ### Revenue sequencing
 
@@ -264,7 +264,7 @@ Screen for at least three screenshot/image-transfer tasks per week and at least 
 - “Which image changes do you make before sharing? Show the last real example.”
 - “When do screenshots become clutter, and when do they become records you need to keep?”
 - “What would make you distrust an extension that can capture webpages?”
-- After using DockSnip: “What did you expect to happen when dragging a Folder?” and “What would stop you from keeping this installed?”
+- After using Docksnip: “What did you expect to happen when dragging a Folder?” and “What would stop you from keeping this installed?”
 
 Ask for demonstrations and recent artifacts rather than feature wish lists. Feature requests should be traced back to a recurring job and current workaround.
 
@@ -278,7 +278,7 @@ Keep analytics opt-in and coarse; never collect images, page contents, URLs, des
 - Breadth: self-reported destination category, collected through optional surveys rather than automatic domain logging.
 - Reliability: local error codes by operation and user-confirmed “worked / did not work” sampling.
 - Retention: week-1 and week-4 return among activated users.
-- Monetization evidence: percentage of retained users who repeatedly perform an editing/export workaround outside DockSnip.
+- Monetization evidence: percentage of retained users who repeatedly perform an editing/export workaround outside Docksnip.
 
 Do not use raw capture count as the primary success metric; it can reward accidental usage without proving delivery value.
 
@@ -304,4 +304,4 @@ Do not use raw capture count as the primary success metric; it can reward accide
 - Editing/redaction and Folder-to-PDF/contact-sheet exports will have stronger willingness to pay than OCR or cloud sync.
 - A one-time license in the $19–35 range will fit perceived value.
 
-The next research milestone should be behavioral interviews and instrumented beta observation—not additional competitive feature collection. The market already demonstrates abundant capture/edit/share tools; DockSnip now needs evidence that its staging-and-Folder loop becomes habitual.
+The next research milestone should be behavioral interviews and instrumented beta observation—not additional competitive feature collection. The market already demonstrates abundant capture/edit/share tools; Docksnip now needs evidence that its staging-and-Folder loop becomes habitual.

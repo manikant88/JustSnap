@@ -353,22 +353,22 @@ const base = normalizeLibrary({
   assert.equal(shouldSuppressNativePageDrop({
     hasPendingPayload: true,
     isTrusted: true,
-    isDockSnipTarget: false
+    isDocksnipTarget: false
   }), true);
   assert.equal(shouldSuppressNativePageDrop({
     hasPendingPayload: true,
     isTrusted: true,
-    isDockSnipTarget: true
+    isDocksnipTarget: true
   }), false);
   assert.equal(shouldSuppressNativePageDrop({
     hasPendingPayload: false,
     isTrusted: true,
-    isDockSnipTarget: false
+    isDocksnipTarget: false
   }), false);
   assert.equal(shouldSuppressNativePageDrop({
     hasPendingPayload: true,
     isTrusted: false,
-    isDockSnipTarget: false
+    isDocksnipTarget: false
   }), false);
 }
 
@@ -688,4 +688,4 @@ const base = normalizeLibrary({
   assert.deepEqual(revealUnownedCaptures(afterSessionIsLost).railOrder, afterSessionIsLost.railOrder);
 }
 
-console.log("DockSnip domain tests passed.");
+console.log("Docksnip domain tests passed.");

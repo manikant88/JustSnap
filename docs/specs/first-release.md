@@ -1,14 +1,14 @@
-# DockSnip First Release
+# Docksnip First Release
 
 ## Product promise
 
 Capture or collect images in a temporary visual dock, group them into Folders, and drag them into the user's next task without creating disposable files.
 
-DockSnip is a visual clipboard, not a screenshot manager, permanent image library, or destination-specific integration.
+Docksnip is a visual clipboard, not a screenshot manager, permanent image library, or destination-specific integration.
 
 ## Users
 
-DockSnip serves people who repeatedly stage screenshots or webpage images between their source and another work surface. Professions and destinations are examples, not product modes or identities.
+Docksnip serves people who repeatedly stage screenshots or webpage images between their source and another work surface. Professions and destinations are examples, not product modes or identities.
 
 ## Required workflow
 
@@ -38,9 +38,9 @@ DockSnip serves people who repeatedly stage screenshots or webpage images betwee
 - Individual captures also have an explicit Copy action.
 - Starting a drag must not silently replace the user's clipboard.
 - Folder delivery supplies captures in user-controlled order, without promising that a Destination preserves that order.
-- DockSnip distinguishes a Delivery Attempt from confirmed Delivery and does not infer acceptance by the Destination.
+- Docksnip distinguishes a Delivery Attempt from confirmed Delivery and does not infer acceptance by the Destination.
 - The first release does not show used, recently dragged, delivery-complete, or post-delivery cleanup state.
-- DockSnip must not claim universal Destination compatibility.
+- Docksnip must not claim universal Destination compatibility.
 
 ## Persistence and cleanup
 
@@ -55,7 +55,7 @@ DockSnip serves people who repeatedly stage screenshots or webpage images betwee
 - Captures remain local unless the user deliberately delivers them to another service.
 - The first release is account-free and contains no automated product analytics.
 - Feedback, surveys, interviews, and diagnostic sharing are user-initiated.
-- DockSnip does not collect or transmit image contents, clipboard contents, page contents, URLs, or Destination domains for analytics.
+- Docksnip does not collect or transmit image contents, clipboard contents, page contents, URLs, or Destination domains for analytics.
 - Remote image collection must enforce bounded downloads and prevent access to private, loopback, link-local, multicast, and reserved network targets, including redirects.
 - Extension permissions must be the narrowest practical set and explained to users.
 

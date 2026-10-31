@@ -1,4 +1,4 @@
-# DockSnip first-release readiness review
+# Docksnip first-release readiness review
 
 Date: 2026-09-14  
 Reviewed branch: `docksnip-sleek`  
@@ -7,7 +7,7 @@ Product contract: [`docs/specs/first-release.md`](../specs/first-release.md)
 
 ## Outcome
 
-DockSnip already has the core shape of the intended product: local capture storage, an on-page Dock, flat Folders, reordering, individual and Folder drag, deletion, cross-tab persistence, and a compact visual treatment. The release should not be widened. It should be hardened around data ownership, delivery, destructive actions, and remote imports.
+Docksnip already has the core shape of the intended product: local capture storage, an on-page Dock, flat Folders, reordering, individual and Folder drag, deletion, cross-tab persistence, and a compact visual treatment. The release should not be widened. It should be hardened around data ownership, delivery, destructive actions, and remote imports.
 
 Current recommendation: **not ready to ship publicly**. Resolve the P0 release blockers, run the destination matrix, and complete a short release-candidate soak. The architectural work should be limited to seams that directly make those fixes safe and testable.
 
