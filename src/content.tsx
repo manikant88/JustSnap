@@ -1303,8 +1303,8 @@ function DockSnipApp({ command }: { command?: ContentCommand }) {
             pageImageAffordance.status === "saved" ? "justsnap-page-image-add-saved" : ""
           ].join(" ")}
           style={pageImageAffordanceStyle(pageImageAffordance.rect)}
-          aria-label={activeAddTarget ? "Add image to stack" : "Dock image"}
-          data-tooltip={activeAddTarget ? "Add to stack" : "Dock image"}
+          aria-label={activeAddTarget ? "Add image to folder" : "Dock image"}
+          data-tooltip={activeAddTarget ? "Add to folder" : "Dock image"}
           disabled={pageImageAffordance.status === "saving"}
           onClick={(event) => {
             event.preventDefault();
